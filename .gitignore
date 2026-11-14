@@ -1,3 +1,5 @@
+**/data/raw/firms/
+**/data/raw/power_cache/
 
 # Python cache
 __pycache__/
@@ -44,3 +46,8 @@ desktop.ini
 # Temporary files
 *.tmp
 *.bak
+
+# ===== Tuỳ chọn: bỏ dấu # nếu cũng không muốn up các mục này =====
+# **/figures/
+# **/data/processed/
+# backend/cache/
