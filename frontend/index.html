@@ -1,0 +1,29 @@
+<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Earth Trend Detective</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+body{margin:0;font:16px/1.5 "Segoe UI",system-ui,sans-serif;background:#eef3f6;color:#12263a}
+main{max-width:980px;margin:auto;padding:20px 14px 50px}h1{font:700 1.9rem Georgia,serif;margin:0}
+.card{background:#fff;border:1px solid #cdd9e2;border-radius:10px;padding:14px;margin:12px 0}
+#map{height:340px;border-radius:8px}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:8px 0}
+button,select,input{font:inherit;padding:6px 10px;border:1px solid #cdd9e2;border-radius:6px}
+button.go{background:#0f7c8a;color:#fff;border-color:#0f7c8a;cursor:pointer}
+#verdict{border-left:4px solid #0f7c8a;padding:8px 12px;background:#eef3f6;margin-top:8px}
+table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #cdd9e2;padding:4px 8px;text-align:left}
+.note{color:#5a6b7b;font-size:.9rem}input[type=number]{width:80px}
+</style></head><body><main>
+<div class="row"><h1>Earth Trend Detective</h1><button id="lang">EN</button></div>
+<p class="note" id="sub"></p>
+<div class="card"><b id="l1"></b>
+ <div class="row"><select id="topic"></select><select id="var"></select></div>
+ <p class="note" id="desc"></p>
+ <b id="l2"></b><div id="map"></div><p class="note" id="pt"></p>
+ <div class="row"><input id="y0" type="number" value="2000"> – <input id="y1" type="number" value="2024">
+ <label><input type="checkbox" id="des" checked> <span id="ldes"></span></label>
+ <label><input type="checkbox" id="ann"> <span id="lann"></span></label>
+ <button class="go" id="run"></button><button id="grid"></button></div></div>
+<div class="card" id="out" hidden><div id="chart"></div><table id="stats"></table><div id="verdict"></div></div>
+<p class="note" id="foot"></p></main>
+<script src="app.js"></script></body></html>

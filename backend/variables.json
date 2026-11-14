@@ -1,0 +1,9 @@
+[
+{"id":"T2M","topic":"heat","unit":"°C","name":{"vi":"Nhiệt độ không khí 2 m","en":"2-m air temperature"},"desc":{"vi":"Nhiệt độ không khí gần mặt đất.","en":"Air temperature near the ground."}},
+{"id":"T2M_MAX","topic":"heat","unit":"°C","name":{"vi":"Nhiệt độ cao nhất ngày","en":"Daily maximum temperature"},"desc":{"vi":"Đỉnh nhiệt mỗi ngày, hợp để xem nắng nóng.","en":"Daily peak, good for studying heat."}},
+{"id":"PRECTOTCORR","topic":"water","unit":"mm/day","name":{"vi":"Lượng mưa","en":"Precipitation"},"desc":{"vi":"Lượng mưa trung bình mỗi ngày.","en":"Average rainfall per day."}},
+{"id":"GWETROOT","topic":"water","unit":"0–1","name":{"vi":"Độ ẩm vùng rễ","en":"Root-zone soil wetness"},"desc":{"vi":"Mức đất ẩm quanh rễ cây (0 khô, 1 bão hòa).","en":"Soil wetness around roots (0 dry, 1 saturated)."}},
+{"id":"RH2M","topic":"air","unit":"%","name":{"vi":"Độ ẩm tương đối","en":"Relative humidity"},"desc":{"vi":"Không khí chứa bao nhiêu hơi nước so với mức tối đa.","en":"How much vapour the air holds versus its maximum."}},
+{"id":"WS2M","topic":"air","unit":"m/s","name":{"vi":"Tốc độ gió 2 m","en":"2-m wind speed"},"desc":{"vi":"Tốc độ gió gần mặt đất.","en":"Wind speed near the ground."}},
+{"id":"ALLSKY_SFC_SW_DWN","topic":"land","unit":"kWh/m²/day","name":{"vi":"Bức xạ mặt trời tới mặt đất","en":"Surface solar radiation"},"desc":{"vi":"Năng lượng mặt trời chạm đất, đã tính mây.","en":"Sunlight reaching the ground, clouds included."}}
+]
