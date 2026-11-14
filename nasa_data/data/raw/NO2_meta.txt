@@ -1,0 +1,7 @@
+Title:,"Time Series, Area-Averaged of NO2 Tropospheric Column (30% Cloud Screened) daily 0.25 (daily)"
+User Start Date:,2004-01-01T00:00:00Z
+User End Date:,2026-11-11T23:59:59Z
+User Bounding Box:,"106.4,10.4,107,11.2"
+Data Bounding Box:,"106.625,10.625,106.875,11.125"
+URL to Reproduce Results:,"https://giovanni.gsfc.nasa.gov/giovanni/#service=ArAvTs&starttime=2004-01-01T00:00:00Z&endtime=2026-11-11T23:59:59Z&bbox=106.4,10.4,107,11.2&data=OMNO2d_004_ColumnAmountNO2TropCloudScreened&dataKeyword=tropospheric&portal=GIOVANNI&format=json"
+Fill Value (mean_OMNO2d_004_ColumnAmountNO2TropCloudScreened):, -1.267651e+30

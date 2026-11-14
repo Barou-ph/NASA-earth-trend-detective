@@ -4,3 +4,4 @@ requests
 pandas
 numpy
 scipy
+python-multipart

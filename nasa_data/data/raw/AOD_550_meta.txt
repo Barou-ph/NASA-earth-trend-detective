@@ -1,0 +1,7 @@
+Title:,"Time Series, Area-Averaged of Aerosol Optical Depth 550 nm (Deep Blue, Land-only) monthly 1 (monthly)"
+User Start Date:,2004-01-01T00:00:00Z
+User End Date:,2026-11-30T23:59:59Z
+User Bounding Box:,"106.4,10.4,107,11.2"
+Data Bounding Box:,"106.5,10.5,106.5,10.5"
+URL to Reproduce Results:,"https://giovanni.gsfc.nasa.gov/giovanni/#service=ArAvTs&starttime=2004-01-01T00:00:00Z&endtime=2026-11-30T23:59:59Z&bbox=106.4,10.4,107,11.2&data=MOD08_M3_6_1_Deep_Blue_Aerosol_Optical_Depth_550_Land_Mean_Mean&dataKeyword=AOD%20550%20&portal=GIOVANNI&format=json"
+Fill Value (mean_MOD08_M3_6_1_Deep_Blue_Aerosol_Optical_Depth_550_Land_Mean_Mean):, -9999
