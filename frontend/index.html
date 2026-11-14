@@ -1,29 +1,106 @@
-<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Earth Trend Detective</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
-body{margin:0;font:16px/1.5 "Segoe UI",system-ui,sans-serif;background:#eef3f6;color:#12263a}
-main{max-width:980px;margin:auto;padding:20px 14px 50px}h1{font:700 1.9rem Georgia,serif;margin:0}
-.card{background:#fff;border:1px solid #cdd9e2;border-radius:10px;padding:14px;margin:12px 0}
-#map{height:340px;border-radius:8px}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:8px 0}
-button,select,input{font:inherit;padding:6px 10px;border:1px solid #cdd9e2;border-radius:6px}
-button.go{background:#0f7c8a;color:#fff;border-color:#0f7c8a;cursor:pointer}
-#verdict{border-left:4px solid #0f7c8a;padding:8px 12px;background:#eef3f6;margin-top:8px}
-table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #cdd9e2;padding:4px 8px;text-align:left}
-.note{color:#5a6b7b;font-size:.9rem}input[type=number]{width:80px}
+:root{--ink:#12263a;--mute:#5a6b7b;--line:#cdd9e2;--bg:#eef3f6;--card:#fff;--teal:#0f7c8a;--orange:#c2410c;--blue:#1d4ed8;--warn:#fff7e6;--warnb:#d97706;--errbg:#fef2f2;--errb:#b91c1c}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.5 "Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+main{max-width:980px;margin:auto;padding:16px 14px 60px}
+h1{font:700 1.8rem Georgia,serif;margin:0;flex:1}h2{font-size:1.05rem;margin:0 0 6px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin:12px 0}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:8px 0}
+.row>label{display:flex;gap:6px;align-items:center}
+.grow{flex:1 1 180px;min-width:0}
+button,select,input{font:inherit;padding:8px 12px;border:1px solid var(--line);border-radius:6px;background:#fff;color:inherit;max-width:100%}
+button{cursor:pointer;min-height:40px}button:disabled{opacity:.55;cursor:wait}
+button.go{background:var(--teal);color:#fff;border-color:var(--teal)}
+button.demo{background:var(--orange);color:#fff;border-color:var(--orange);font-weight:600}
+button.load::after{content:"";display:inline-block;width:.9em;height:.9em;margin-left:8px;vertical-align:-2px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+#map{height:340px;border-radius:8px}
+.note{color:var(--mute);font-size:.9rem;margin:4px 0}
+#status{min-height:1.4em;color:var(--teal);font-size:.95rem}
+#err{display:none;background:var(--errbg);border-left:4px solid var(--errb);padding:8px 12px;border-radius:6px;margin:8px 0}
+#verdict,.callout{border-left:4px solid var(--teal);padding:8px 12px;background:var(--bg);margin-top:10px;border-radius:0 6px 6px 0}
+.callout.warn{background:var(--warn);border-color:var(--warnb)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:8px}
+.tile{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fafcfd}
+.tile small{display:block;color:var(--mute);font-size:.78rem}.tile b{font-size:1.05rem;word-break:break-word}
+.badge{display:inline-block;font-size:.75rem;padding:1px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;background:#e5e7eb;color:#374151}
+.badge.ok{background:#d1f0f3;color:#075e69}
+.tw{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:420px}
+td,th{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left}th{font-size:.85rem;color:var(--mute)}
+td.num{text-align:right;font-variant-numeric:tabular-nums}tr.pick{background:#eef7f8}
+a.city{color:var(--teal);cursor:pointer;text-decoration:underline}
+input[type=number]{width:84px}input[type=file]{width:100%}
+.up{border:2px dashed var(--line);border-radius:8px;padding:12px;background:#fafcfd}
+.up.over{border-color:var(--teal);background:#eef7f8}
+.chart{min-height:260px}.chart.small{min-height:150px}
+button.demo2{background:#fff;color:var(--orange);border-color:var(--orange);font-weight:600}
+h3{font-size:.98rem;margin:14px 0 4px}
+#qNotes{list-style:none;margin:6px 0;padding:0}#qNotes li{padding:6px 10px;margin:4px 0;border-left:4px solid var(--line);background:#fafcfd;border-radius:0 6px 6px 0;font-size:.92rem}
+#qNotes li.ok{border-color:var(--teal)}#qNotes li.warn{border-color:var(--warnb);background:var(--warn)}
+#glossList dt{font-weight:600;margin-top:10px}#glossList dd{margin:2px 0 0}summary{cursor:pointer;font-weight:600}
+.tile[title],th[title]{cursor:help}
+#sumHead{font-weight:700;font-size:1.15rem;line-height:1.4;margin:8px 0 4px}
+#sumList{list-style:none;margin:8px 0 0;padding:0}
+#sumList li{display:flex;gap:10px;padding:8px 10px;margin:6px 0;border-left:4px solid var(--teal);background:#fafcfd;border-radius:0 6px 6px 0}
+#sumList li.up{border-color:var(--orange)}#sumList li.down{border-color:var(--blue)}#sumList li.flat{border-color:var(--mute)}#sumList li.warn{border-color:var(--warnb);background:var(--warn)}
+#sumList .ic{flex:0 0 1.4em;text-align:center}
+@media (max-width:560px){h1{font-size:1.4rem}#map{height:260px}.grow{flex-basis:100%}button{flex:1 1 140px}main{padding:10px 10px 50px}}
 </style></head><body><main>
-<div class="row"><h1>Earth Trend Detective</h1><button id="lang">EN</button></div>
+<div class="row"><h1>Earth Trend Detective</h1><button id="lang" aria-label="Language">EN</button></div>
 <p class="note" id="sub"></p>
-<div class="card"><b id="l1"></b>
- <div class="row"><select id="topic"></select><select id="var"></select></div>
+
+<section class="card"><h2 id="l1"></h2>
+ <div class="row"><select id="topic" class="grow" aria-label="Topic"></select><select id="var" class="grow" aria-label="Variable"></select></div>
  <p class="note" id="desc"></p>
- <b id="l2"></b><div id="map"></div><p class="note" id="pt"></p>
- <div class="row"><input id="y0" type="number" value="2000"> – <input id="y1" type="number" value="2024">
- <label><input type="checkbox" id="des" checked> <span id="ldes"></span></label>
- <label><input type="checkbox" id="ann"> <span id="lann"></span></label>
- <button class="go" id="run"></button><button id="grid"></button></div></div>
-<div class="card" id="out" hidden><div id="chart"></div><table id="stats"></table><div id="verdict"></div></div>
+ <h2 id="l2"></h2>
+ <div class="row"><select id="city" class="grow" aria-label="City"></select></div>
+ <div id="map"></div><p class="note" id="pt"></p>
+ <div class="row"><input id="y0" type="number" value="2000" aria-label="Start year"> – <input id="y1" type="number" value="2024" aria-label="End year">
+  <label><input type="checkbox" id="des" checked> <span id="ldes"></span></label>
+  <label><input type="checkbox" id="ann"> <span id="lann"></span></label></div>
+ <div class="row"><button class="demo" id="demo"></button><button class="demo2" id="demo2"></button><button class="go" id="run"></button><button id="grid"></button></div>
+ <div id="status" role="status" aria-live="polite"></div><div id="err" role="alert"></div>
+</section>
+
+<section class="card" id="sumCard"><h2 id="sumT"></h2>
+ <div class="row"><button class="go" id="sumRun"></button><button id="sumCopy" disabled></button><span class="note" id="sumNote"></span></div>
+ <div id="sumOut" hidden><p id="sumHead"></p><div class="tiles" id="sumChips"></div>
+  <div id="sumChart" class="chart"></div><ul id="sumList"></ul><p class="note" id="sumSrc"></p></div></section>
+
+<section class="card" id="out" hidden><h2 id="resT"></h2><p class="note" id="srcTitle"></p>
+ <div id="chart" class="chart"></div><div class="tiles" id="tiles"></div><div id="verdict"></div>
+ <div id="quality" hidden><h3 id="qT"></h3><div class="tiles" id="qChips"></div><div id="qChart" class="chart small" hidden></div>
+  <ul id="qNotes"></ul><p class="note" id="qOut"></p></div></section>
+
+<section class="card" id="lagCard"><h2 id="lagT"></h2>
+ <div class="row"><span class="note" id="lagALbl"></span><select id="varB" class="grow" aria-label="Variable B"></select><button class="go" id="lagRun"></button></div>
+ <div id="lagOut" hidden><div id="lagChart" class="chart"></div><p id="lagBest"></p><div class="callout warn" id="lagCav"></div></div></section>
+
+<section class="card" id="anoCard"><h2 id="anoT"></h2>
+ <div class="row"><button class="go" id="anoRun"></button><span class="note" id="anoNote"></span></div>
+ <div id="anoChart" class="chart" hidden></div></section>
+
+<section class="card" id="scanCard"><h2 id="scanT"></h2><p class="note" id="scanHelp"></p>
+ <div class="row"><button class="go" id="scanRun"></button><span class="note" id="scanNote"></span></div>
+ <div id="scanChart" class="chart" hidden></div>
+ <div class="tw" id="scanWrap" hidden><table><thead><tr id="scanHead"></tr></thead><tbody id="scanBody"></tbody></table></div></section>
+
+<section class="card" id="rankCard"><h2 id="rankT"></h2>
+ <div class="row"><select id="region" aria-label="Region"></select><button class="go" id="rankRun"></button><button id="rankCmp" disabled></button></div>
+ <p class="note" id="rankNote"></p><div class="callout" id="oppNote" hidden></div>
+ <div class="tw" id="rankWrap" hidden><table><thead><tr id="rankHead"></tr></thead><tbody id="rankBody"></tbody></table></div>
+ <div id="cmpChart" class="chart" hidden></div></section>
+
+<section class="card" id="upCard"><h2 id="upT"></h2><p class="note" id="upHelp"></p>
+ <div class="up" id="drop"><input type="file" id="file" accept=".csv,text/csv,text/plain" aria-label="CSV file"></div>
+ <div class="row"><input id="upName" class="grow" aria-label="Name"><input id="upUnit" style="width:110px" aria-label="Unit"><button class="go" id="upRun"></button></div></section>
+
+<section class="card"><details id="gloss"><summary id="glossT"></summary><dl id="glossList"></dl></details></section>
 <p class="note" id="foot"></p></main>
 <script src="app.js"></script></body></html>
