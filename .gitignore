@@ -44,6 +44,3 @@ desktop.ini
 # Temporary files
 *.tmp
 *.bak
-
-# Re-creatable NASA POWER response cache
-backend/cache/

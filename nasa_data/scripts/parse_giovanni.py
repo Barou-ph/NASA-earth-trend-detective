@@ -16,20 +16,11 @@ def parse(path):
     df.columns = ["time", "value"] + list(df.columns[2:])
     df["date"] = pd.to_datetime(df["time"], errors="coerce")
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    df.loc[df["value"] < -1e20, "value"] = float("nan")   # giá trị thiếu kiểu fill-value cực lớn (NO2)
-    # Fill value khai báo trong phần đầu file (AOD dùng -9999, không bắt được bởi ngưỡng -1e20 ở trên)
-    for l in meta:
-        if l.lower().startswith("fill value"):
-            try:
-                fv = float(l.rsplit(",", 1)[1])
-            except ValueError:
-                continue
-            df.loc[(df["value"] - fv).abs() <= abs(fv) * 1e-6, "value"] = float("nan")
+    df.loc[df["value"] < -1e20, "value"] = float("nan")   # giá trị thiếu kiểu fill-value
     return df[["date", "value"]].dropna(subset=["date"]), meta
 
 
 if __name__ == "__main__":
-    sys.stdout.reconfigure(encoding="utf-8")   # console Windows (cp1252) không in được tiếng Việt
     for p in sys.argv[1:]:
         df, meta = parse(p)
         p = Path(p)
