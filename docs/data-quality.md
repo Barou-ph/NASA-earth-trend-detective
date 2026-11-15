@@ -69,7 +69,28 @@ Tự sinh bởi `python scripts/prepare_hcm_data.py` từ thư mục `nasa_data/
 | Ngoại lai | Đánh dấu (robust z theo cùng tháng), không xóa | Không phân biệt được sự kiện thật với lỗi nếu thiếu số đo mặt đất |
 | Chu kỳ mùa | Trừ trung bình từng tháng lịch trước khi kiểm định | Để chu kỳ mùa không che xu hướng |
 
-## 6. Dữ liệu nên bổ sung để nâng cấp
+## 6. Sàng lọc tương quan giữa các biến
+
+Giai đoạn 2004–2025, TP.HCM. Chuỗi tháng đã trừ chu kỳ mùa và xu hướng tuyến tính riêng của từng chuỗi; r Pearson ở độ trễ 0–3 tháng (dương = chuỗi thứ hai theo sau); p theo cỡ mẫu hiệu dụng (Bretherton) vì chuỗi tự tương quan; q = hiệu chỉnh Benjamini-Hochberg trên mọi cặp × độ trễ đã thử.
+
+Ngưỡng ứng viên: q < 0.05 và |r| ≥ 0.3. Tổng số phép thử (cặp × độ trễ): 32.
+
+| Cặp | r tốt nhất | Độ trễ (tháng) | q | n | Kết luận | Khớp cơ chế |
+|---|---|---|---|---|---|---|
+| Tốc độ gió 2 m ↔ NO₂ tầng đối lưu | -0.2 | 0 | 0.094 | 248 | yếu | có |
+| Độ ẩm tương đối ↔ Bụi mịn trong khí quyển (AOD) | -0.15 | 1 | 0.28 | 195 | yếu | – |
+| Nhiệt độ không khí 2 m ↔ NO₂ tầng đối lưu | 0.14 | 2 | 0.28 | 239 | yếu | – |
+| Nhiệt độ không khí 2 m ↔ Bụi mịn trong khí quyển (AOD) | 0.13 | 3 | 0.28 | 190 | không thấy | – |
+| Lượng mưa ↔ Bụi mịn trong khí quyển (AOD) | -0.12 | 3 | 0.28 | 190 | không thấy | có |
+| Lượng mưa ↔ NO₂ tầng đối lưu | 0.12 | 3 | 0.28 | 239 | không thấy | không |
+| Bụi mịn trong khí quyển (AOD) ↔ NO₂ tầng đối lưu | 0.087 | 3 | 0.44 | 178 | không thấy | có |
+| Tốc độ gió 2 m ↔ Bụi mịn trong khí quyển (AOD) | -0.058 | 1 | 0.64 | 195 | không thấy | có |
+
+Tương quan không chứng minh nhân quả. Một cặp chỉ là ứng viên để xem xét khi q < 0,05 và |r| ≥ 0,3; chiều tương quan cũng nên khớp cơ chế vật lý.
+
+Bỏ qua: hcm_fire (no fire preset (needs >= 5 years of FIRMS))
+
+## 7. Dữ liệu nên bổ sung để nâng cấp
 
 1. **Điểm cháy FIRMS 2006–2025** (cần MAP_KEY) để nối khói/cháy với AOD và NO₂ theo độ trễ 0–3 tháng.
 2. **PM2.5 mặt đất** (OpenAQ hoặc trạm đại sứ quán Mỹ tại TP.HCM, từ khoảng 2016) để kiểm chứng AOD và NO₂ có phản ánh không khí người dân hít thở không.

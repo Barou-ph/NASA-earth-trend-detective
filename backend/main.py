@@ -1,6 +1,6 @@
 """Earth Trend Detective API. Run: uvicorn backend.main:app --reload
 Contract: docs/api-contract.md (field names are frozen; only add, never rename)."""
-import csv, io, json, math, pathlib, concurrent.futures as cf
+import csv, datetime, io, json, math, pathlib, threading, concurrent.futures as cf
 import numpy as np, pandas as pd, requests
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
@@ -10,6 +10,7 @@ ROOT = pathlib.Path(__file__).parent
 CACHE = ROOT / "cache"; CACHE.mkdir(exist_ok=True)
 PRESET_DIR = ROOT / "presets"
 URL = "https://power.larc.nasa.gov/api/temporal/monthly/point"
+DAILY_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
 MAX_UPLOAD = 5 * 1024 * 1024
 LAGS = [0, 1, 2, 3]
 
@@ -91,7 +92,7 @@ def get_series(src, lat, lon, y0, y1):
         if not f.exists():
             raise HTTPException(404, f"Preset data not found: put {p['file']} in backend/presets/")
         df = parse_series_csv(f.read_bytes())
-        return df, dict(id=p["id"], unit=p.get("unit", ""), name=p["name"])
+        return df, dict(id=p["id"], unit=p.get("unit", ""), name=p["name"], topic=p.get("topic", ""))
     m = meta_of(src)
     return fetch(lat, lon, src, y0, y1), m
 
@@ -241,6 +242,43 @@ def bh_adjust(ps):
         i = order[rank - 1]; prev = min(prev, ps[i] * n / rank); q[i] = prev
     return q
 
+LEVEL_RANK = {"strong": 3, "moderate": 2, "weak": 1, "none": 0}
+
+def cap_evidence(rows):
+    """Many variables are scanned at once: a trend that only just survives the FDR correction (q >= 0.01) is never called 'strong'."""
+    for r in rows:
+        ev = r["evidence"]
+        if ev["level"] == "strong" and r["q"] >= .01:
+            ev["level"] = "moderate"; ev["capped"] = True
+    return rows
+
+def evidence_for(df):
+    """How far a monthly trend can be trusted: five independent checks, each pass/fail with a plain-language reason.
+    strong = significant and >= 4 checks, moderate = significant and 3, weak = significant but <= 2, none = not significant."""
+    try: base = analyze(df, True, False)
+    except HTTPException: return None
+    sign = 1 if base["slope"] > 0 else -1
+    same = lambda a: a["slope"] * sign > 0
+    def ok(fn):
+        try: return bool(fn())
+        except HTTPException: return False
+    z = _robust_z(df); mid = df.t.median()
+    k = _k(df); expected = int(k.max() - k.min() + 1); cov = len(set(k.tolist())) / expected
+    checks = [
+        (base["sig"], "Cả t-test và Mann-Kendall đều có ý nghĩa", "Both the t-test and Mann-Kendall are significant"),
+        (ok(lambda: (lambda a: same(a) and a["sig"])(analyze(df[z.abs() <= 3.5], True, False))),
+         "Vẫn đúng khi bỏ các tháng ngoại lai", "Still holds when outlier months are removed"),
+        (ok(lambda: same(analyze(df[df.t <= mid], True, False)) and same(analyze(df[df.t > mid], True, False))),
+         "Cùng chiều ở cả hai nửa giai đoạn", "Same direction in both halves of the period"),
+        (ok(lambda: (lambda a: same(a) and a["p_mk"] < .05)(analyze(df, True, True))),
+         "Vẫn có ý nghĩa khi dùng trung bình năm", "Still significant when yearly means are used"),
+        (bool(cov >= .85 and expected >= 120), "Đủ dữ liệu (≥ 85% số tháng, ≥ 10 năm)", "Enough data (≥ 85% of months, ≥ 10 years)"),
+    ]
+    score = sum(1 for c in checks if c[0])
+    level = "none" if not base["sig"] else "strong" if score >= 4 else "moderate" if score == 3 else "weak"
+    return dict(level=level, score=score, of=len(checks), coverage=cov, capped=False,
+                checks=[dict(id=i, passed=bool(c[0]), vi=c[1], en=c[2]) for i, c in enumerate(checks, 1)])
+
 def lag_calc(da, db, detrend=True):
     da, db = deseasonalize(da), deseasonalize(db)
     if detrend:       # remove each series' own linear trend so a shared drift is not mistaken for co-variation
@@ -301,13 +339,16 @@ def scan_rows(la, lo, start, end, city=None):
             df, m = get_series(sid, la, lo, start, end)
             a = analyze(df, True, False)
             sd = float(np.std(a["v"])) or 1.0
+            ev = evidence_for(df) or dict(level="none", score=0, of=5, coverage=0.0, checks=[])
             return dict(var=sid, kind=kind, topic=m.get("topic", ""), name=m["name"], unit=m["unit"], slope=a["slope"], total=a["total"],
-                        effect_sd=a["total"] / sd, tau=a["tau"], p=a["p_t"], p_mk=a["p_mk"], sig=a["sig"], n=a["n"], span=a["span"])
+                        effect_sd=a["total"] / sd, tau=a["tau"], p=a["p_t"], p_mk=a["p_mk"], sig=a["sig"], n=a["n"], span=a["span"],
+                        coverage=ev["coverage"], evidence=ev)
         except Exception:
             return None
     with cf.ThreadPoolExecutor(4) as ex:
         rows = [r for r in ex.map(one, srcs) if r]
     for r, q in zip(rows, bh_adjust([max(r["p"], r["p_mk"]) for r in rows])): r["q"] = q; r["sig_fdr"] = bool(q < .05)
+    cap_evidence(rows)
     return sorted(rows, key=lambda r: (not r["sig_fdr"], not r["sig"], -abs(r["effect_sd"])))
 
 MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
@@ -402,6 +443,265 @@ def summarize(df, unit, name, place=None, lag=None, rank=None):
                 yearly=dict(y=[int(i) for i in ann.index], v=[float(x) for x in ann.values]),   # raw yearly means for the summary chart
                 text={L: " ".join([head[L]] + [b[L] for b in out[1:]]) for L in ("vi", "en")})
 
+def globe_rows(var, start, end):
+    """Every city for one variable: the final trend plus the yearly anomaly series (for the 3D time-lapse)."""
+    meta = meta_of(var)
+    def one(c):
+        try:
+            df = fetch(c["lat"], c["lon"], var, start, end)
+            a = analyze(df, True, True)
+            am = analyze(df, True, False)                       # same definition of "change in SD" as scan / brief: monthly de-seasoned anomalies
+            sd = float(np.std(am["v"])) or 1.0
+            return dict(city=c["id"], name=c["name"], region=c.get("region", "vn"), lat=c["lat"], lon=c["lon"], slope=a["slope"],
+                        p=a["p_t"], p_mk=a["p_mk"], sig=bool(a["p_t"] < .05 and a["p_mk"] < .05), effect_sd=am["total"] / sd,
+                        years=[int(t_) for t_ in a["t"]], anom=a["v"])
+        except Exception:
+            return None
+    with cf.ThreadPoolExecutor(4) as ex:
+        rows = [r for r in ex.map(one, CITIES) if r]
+    for r, q in zip(rows, bh_adjust([max(r["p"], r["p_mk"]) for r in rows])): r["q"] = q; r["sig_fdr"] = bool(q < .05)
+    allyears = sorted({y for r in rows for y in r["years"]})
+    for r in rows:                                  # align every city on the same year axis (None = no data that year)
+        by = dict(zip(r.pop("years"), r["anom"])); r["anom"] = [by.get(y) for y in allyears]
+    return dict(var=var, unit=meta["unit"], name=meta["name"], years=allyears, cities=rows)
+
+
+# ------------------------------------------------------------------ weekly (recent weeks, hover on the map)
+def fetch_daily(lat, lon, par, d0, d1):
+    """Daily series from NASA POWER (cached on disk per day). Returns a pandas Series indexed by date; fill values dropped."""
+    f = CACHE / f"daily_{par}_{lat:.2f}_{lon:.2f}_{d1.isoformat()}.json"
+    d = None
+    if f.exists():
+        try: d = json.load(open(f))
+        except ValueError: d = None
+    if d is None:
+        try:
+            r = requests.get(DAILY_URL, params=dict(parameters=par, community="AG", longitude=lon, latitude=lat,
+                             start=d0.strftime("%Y%m%d"), end=d1.strftime("%Y%m%d"), format="JSON"), timeout=90)
+        except requests.RequestException as e:
+            raise HTTPException(502, f"Cannot reach NASA POWER: {e.__class__.__name__}")
+        if r.status_code != 200: raise HTTPException(502, f"NASA POWER error {r.status_code}")
+        try: d = r.json()["properties"]["parameter"][par]
+        except (KeyError, ValueError): raise HTTPException(502, "Unexpected NASA POWER response")
+        json.dump(d, open(f, "w"))
+    return pd.Series({pd.Timestamp(k): v for k, v in d.items() if v > -990}, dtype=float).sort_index()
+
+def _trend_p(x, y):
+    """OLS slope with a lag-1 autocorrelation-adjusted p-value (same correction as analyze)."""
+    n = len(x); lr = stats.linregress(x, y); res = y - (lr.intercept + lr.slope * x)
+    r1 = float(np.corrcoef(res[:-1], res[1:])[0, 1]) if res.std() > 1e-12 else 0.0
+    if not math.isfinite(r1): r1 = 0.0
+    neff = max(3.0, n * (1 - r1) / (1 + r1)) if r1 > 0 else float(n)
+    se = float(lr.stderr) * math.sqrt((n - 2) / (neff - 2))
+    p = float(2 * stats.t.sf(abs(lr.slope / se), neff - 2)) if se > 1e-12 else (1.0 if abs(lr.slope) < 1e-12 else 0.0)
+    return float(lr.slope), p, float(neff)
+
+def weekly_calc(s, weeks=52):
+    """Last `weeks` weekly means vs the same ISO weeks of the earlier years (climatology), plus a short-term trend of the anomaly.
+    Deliberately a short-term view: 52 weeks is not a climate trend."""
+    if s.empty: raise HTTPException(502, "No daily data returned")
+    w = s.resample("W-SUN").agg(["mean", "count"]); w = w[w["count"] >= 5]["mean"]
+    if len(w) < weeks + 104: raise HTTPException(422, "Need at least 3 years of weekly data")
+    recent, hist = w.iloc[-weeks:], w.iloc[:-weeks]
+    woy = lambda idx: np.minimum(idx.isocalendar().week.values.astype(int), 52)
+    clim = pd.Series(hist.values).groupby(woy(hist.index)).mean()
+    c = np.array([clim.get(k, np.nan) for k in woy(recent.index)]); anom = recent.values - c; ok = np.isfinite(anom)
+    if ok.sum() < 20: raise HTTPException(422, "Not enough weeks with a climatology to compare")
+    x, y = np.arange(len(recent))[ok].astype(float), anom[ok]
+    slope, p, neff = _trend_p(x, y)
+    nz = lambda a: [None if not math.isfinite(v) else round(float(v), 4) for v in a]
+    total = slope * (x[-1] - x[0]); sd = float(np.std(y)) or 1.0
+    return dict(total=float(total), effect_sd=float(total / sd), weeks=[d.date().isoformat() for d in recent.index], v=nz(recent.values), clim=nz(c), anom=nz(anom),
+                slope_week=slope, p=p, sig=bool(p < .05), n=int(ok.sum()), n_eff=neff, mean_anom=float(np.nanmean(anom)),
+                last=dict(week=recent.index[-1].date().isoformat(), v=float(recent.values[-1]), clim=_f(c[-1]), anom=_f(anom[-1])),
+                note=dict(vi="Đây là 52 tuần gần nhất so với cùng tuần của các năm trước: bức tranh ngắn hạn, không phải xu hướng khí hậu.",
+                          en="This is the last 52 weeks versus the same weeks of earlier years: a short-term picture, not a climate trend."))
+
+
+def recent7_calc(s, today=None, ctx_days=30):
+    """The most recent 7 days with data vs the normal for the same time of year (daily climatology of the earlier data, smoothed over +-15 days).
+    z = anomaly / sd of 7-day-mean anomalies in the same season (+-30 days around this date) in earlier years; p = how often a week that unusual happened then."""
+    if s.empty or len(s) < 3 * 365: raise HTTPException(422, "Need at least 3 years of daily data")
+    end = s.index.max(); win = s[s.index > end - pd.Timedelta(days=7)]
+    if len(win) < 5: raise HTTPException(422, "Not enough recent days")
+    hist = s[s.index <= end - pd.Timedelta(days=7)]
+    doy = lambda idx: np.minimum(idx.dayofyear.values, 365)
+    clim = hist.groupby(doy(hist.index)).mean().reindex(range(1, 366))
+    ext = pd.concat([clim.iloc[-15:], clim, clim.iloc[:15]]).rolling(31, center=True, min_periods=10).mean().iloc[15:-15]; ext.index = range(1, 366)
+    cl = lambda idx: ext.reindex(doy(idx)).values
+    r7 = pd.Series(hist.values - cl(hist.index), index=hist.index).rolling(7, min_periods=5).mean()
+    a_last = float(np.nanmean(win.values - cl(win.index)))
+    end_doy = int(min(end.dayofyear, 365)); dd = ((doy(r7.index) - end_doy + 182) % 365) - 182
+    pool = r7.values[(np.abs(dd) <= 30) & np.isfinite(r7.values)]
+    if len(pool) < 50 or not math.isfinite(a_last): raise HTTPException(422, "Not enough earlier data for the same season")
+    sd = float(np.std(pool)) or 1.0; p = float((1 + np.sum(np.abs(pool) >= abs(a_last))) / (len(pool) + 1))
+    cx = s[s.index > end - pd.Timedelta(days=ctx_days)].reindex(pd.date_range(end - pd.Timedelta(days=ctx_days - 1), end))
+    nz = lambda a: [None if not math.isfinite(v) else round(float(v), 4) for v in a]
+    today = today or datetime.date.today()
+    return dict(end=end.date().isoformat(), stale_days=(today - end.date()).days, n=int(len(win)), mean=float(win.mean()), clim=float(np.nanmean(cl(win.index))),
+                anom=a_last, effect_sd=a_last / sd, p=p, sig=bool(p < .05), pool=int(len(pool)),
+                days=dict(dates=[d.date().isoformat() for d in cx.index], v=nz(cx.values), clim=nz(cl(cx.index))),
+                note=dict(vi="7 ngày gần nhất có dữ liệu so với mức thường lệ của đúng thời điểm này trong các năm trước. Chỉ là một tuần, không phải xu hướng khí hậu.",
+                          en="The latest 7 days with data versus the normal for this time of year in earlier years. Just one week, not a climate trend."))
+
+# ------------------------------------------------------------------ highlights (notable trends of the LAST 7 DAYS across all cities)
+HL, HL_LOCK = {}, threading.Lock()
+
+def week_row(c, var, r):
+    m = meta_of(var)
+    return dict(city=c["id"], place=c["name"], region=c.get("region", "vn"), lat=c["lat"], lon=c["lon"], var=var, topic=m.get("topic", ""), name=m["name"], unit=m["unit"],
+                direction="up" if r["anom"] > 0 else "down", effect_sd=r["effect_sd"], anom=r["anom"], mean=r["mean"], clim=r["clim"], end=r["end"], p=r["p"], n=r["n"], spark=r["days"])
+
+def city_week_rows(c, today):
+    """The last 7 days (vs the normal for this time of year) of every POWER indicator at one city. Indicators whose daily data
+    lags more than 10 days behind today (e.g. cloud amount) are skipped: they would not be 'the last 7 days'."""
+    d0 = datetime.date(today.year - 5, 1, 1)
+    def one(v):
+        try:
+            r = recent7_calc(fetch_daily(c["lat"], c["lon"], v["id"], d0, today), today)
+            return week_row(c, v["id"], r) if r["stale_days"] <= 10 else None
+        except Exception: return None
+    with cf.ThreadPoolExecutor(4) as ex:
+        return [r for r in ex.map(one, VARS) if r]
+
+def pick_highlights(rows, limit=12, per_city=2):
+    """Many city x indicator pairs are tested at once, so p-values get a Benjamini-Hochberg q. Only raw p < 0.05 pairs are candidates;
+    FDR-surviving ones come first, then the biggest change. At most `per_city` per city so one place does not take the whole page."""
+    rows = [dict(r) for r in rows]
+    for r, q in zip(rows, bh_adjust([r["p"] for r in rows])): r["q"] = q; r["sig_fdr"] = bool(q < .05)
+    seen, out = {}, []
+    for r in sorted((r for r in rows if r["p"] < .05), key=lambda r: (not r["sig_fdr"], -abs(r["effect_sd"]))):
+        if seen.get(r["city"], 0) >= per_city: continue
+        seen[r["city"]] = seen.get(r["city"], 0) + 1; out.append(r)
+        if len(out) >= limit: break
+    return out
+
+def _hl_worker(key, st):
+    today = datetime.date.fromisoformat(key)
+    for c in CITIES:
+        try: rows = city_week_rows(c, today)
+        except Exception: rows = []
+        with HL_LOCK: st["rows"].extend(rows); st["done"] += 1
+    st["finished"] = True
+    try: json.dump(st["rows"], open(CACHE / f"highlights_7d_{key}.json", "w"))
+    except OSError: pass
+
+def hl_state():
+    key = datetime.date.today().isoformat()
+    with HL_LOCK:
+        st = HL.get(key)
+        if st: return key, st
+        f = CACHE / f"highlights_7d_{key}.json"
+        if f.exists():
+            try:
+                st = dict(rows=json.load(open(f)), done=len(CITIES), finished=True); HL[key] = st; return key, st
+            except ValueError: pass
+        st = HL[key] = dict(rows=[], done=0, finished=False)
+    threading.Thread(target=_hl_worker, args=(key, st), daemon=True).start()
+    return key, st
+
+@app.on_event("startup")
+def _warm():
+    hl_state()                                              # compute in the background so the home page is ready when someone opens it
+
+# Transparent rule table behind "directions to consider": (variables, direction, topic, vi, en). Not policy advice.
+ACTION_RULES = [
+    (("T2M", "TS", "T2M_MAX"), "up", "heat",
+     "Nhiệt độ đang tăng: xem xét các biện pháp giảm nhiệt đô thị (cây xanh, mặt phủ phản xạ, mặt nước), bắt đầu từ khu dân cư đông và nhóm dễ tổn thương.",
+     "Temperatures are rising: consider urban cooling measures (trees, reflective surfaces, water), starting with dense neighbourhoods and vulnerable groups."),
+    (("T2M_MIN",), "up", "heat",
+     "Đêm đang ấm lên: đánh giá nguy cơ sốc nhiệt ban đêm và ưu tiên không gian mát cho khu dân cư dày đặc.",
+     "Nights are warming: assess night-time heat stress and prioritise cool spaces for dense neighbourhoods."),
+    (("hcm_no2",), "up", "air",
+     "NO₂ tăng: rà soát nguồn phát thải giao thông và công nghiệp, bổ sung trạm đo mặt đất để kiểm chứng.",
+     "NO₂ is rising: review traffic and industrial emission sources and add ground monitors to verify."),
+    (("hcm_aod",), "down", "air",
+     "Bụi mịn AOD giảm: chưa thể suy ra PM2.5 mặt đất cũng giảm; cần đối chiếu bằng trạm đo trước khi kết luận.",
+     "AOD is falling: this does not show ground-level PM2.5 is also falling; check against ground monitors before concluding."),
+    (("hcm_aod",), "up", "air",
+     "Bụi mịn AOD tăng: ưu tiên kiểm tra nguồn bụi, khói và đối chiếu với trạm đo PM2.5 mặt đất.",
+     "AOD is rising: check dust and smoke sources and compare with ground PM2.5 monitors."),
+    (("hcm_fire",), "up", "air",
+     "Điểm cháy tăng: theo dõi nguồn khói lan tới thành phố, đặc biệt trong mùa khô.",
+     "Fire detections are rising: track smoke reaching the city, especially in the dry season."),
+    (("CLOUD_AMT",), "up", "energy",
+     "Mây tăng: ảnh hưởng điện mặt trời và nhiệt độ ban ngày; tính đến khi quy hoạch năng lượng tái tạo.",
+     "Cloud cover is rising: affects solar power and daytime temperature; account for it when planning renewables."),
+    (("CLOUD_AMT",), "down", "energy",
+     "Mây giảm: nắng nhiều hơn, tiềm năng điện mặt trời tăng nhưng nhu cầu che nắng và làm mát cũng tăng.",
+     "Cloud cover is falling: more sun, higher solar potential but also higher shading and cooling demand."),
+    (("ALLSKY_SFC_SW_DWN",), "down", "energy",
+     "Bức xạ mặt trời giảm: tiềm năng điện mặt trời có thể giảm; kiểm tra trước khi thiết kế dự án năng lượng.",
+     "Surface sunlight is falling: solar potential may fall; check before designing energy projects."),
+    (("ALLSKY_SFC_SW_DWN",), "up", "energy",
+     "Bức xạ mặt trời tăng: tiềm năng điện mặt trời tăng, đồng thời cần che nắng cho khu dân cư.",
+     "Surface sunlight is rising: higher solar potential, and shading is needed for housing."),
+    (("PRECTOTCORR",), "up", "water",
+     "Mưa tăng: rà soát hệ thống thoát nước và nguy cơ ngập.", "Rainfall is rising: review drainage and flood risk."),
+    (("PRECTOTCORR",), "down", "water",
+     "Mưa giảm: lưu ý cấp nước và nguy cơ khô hạn.", "Rainfall is falling: note water supply and drought risk."),
+    (("GWETROOT", "GWETTOP"), "down", "water",
+     "Đất khô đi: ảnh hưởng cây xanh đô thị và nhu cầu tưới.", "Soils are drying: affects urban trees and irrigation needs."),
+    (("WS2M",), "down", "wind",
+     "Gió yếu đi: thông gió đô thị và khả năng phân tán ô nhiễm giảm; cân nhắc hành lang gió khi quy hoạch.",
+     "Winds are weakening: urban ventilation and pollution dispersal drop; consider wind corridors in planning."),
+    (("QV2M",), "up", "heat",
+     "Không khí ẩm hơn: cảm giác nóng bức tăng khi nhiệt độ cao; cân nhắc chỉ số nóng-ẩm khi cảnh báo nhiệt.",
+     "Air is more humid: heat feels worse at high temperatures; consider a heat index in heat warnings."),
+    (("EVLAND", "EVPTRNS"), "up", "water",
+     "Bốc hơi và thoát hơi tăng: nhu cầu nước của đất và cây tăng; xem cùng độ ẩm đất.",
+     "Evaporation and transpiration are rising: soils and plants need more water; read with soil wetness."),
+    (("EVLAND", "EVPTRNS"), "down", "water",
+     "Bốc hơi và thoát hơi giảm: xem cùng độ ẩm đất và độ che phủ thực vật.",
+     "Evaporation and transpiration are falling: read with soil wetness and vegetation cover."),
+]
+LEVEL_VI = {"strong": "mạnh", "moderate": "vừa", "weak": "yếu", "none": "chưa có"}
+LEVEL_EN = {"strong": "strong", "moderate": "moderate", "weak": "weak", "none": "none"}
+
+def action_for(r):
+    d = "up" if r["slope"] > 0 else "down"
+    for vars_, dire, topic, vi, en in ACTION_RULES:
+        if r["var"] in vars_ and dire == d:
+            return dict(topic=topic, var=r["var"], direction=d, vi=vi, en=en, level=r["evidence"]["level"])
+    nm = r["name"]
+    return dict(topic="other", var=r["var"], direction=d, level=r["evidence"]["level"],
+                vi=f"{nm['vi']} đang {'tăng' if d == 'up' else 'giảm'}: theo dõi và đối chiếu với số liệu địa phương.",
+                en=f"{nm['en']} is {'rising' if d == 'up' else 'falling'}: monitor and compare with local data.")
+
+def build_brief(city, la, lo, start, end):
+    """One-page decision brief for a place: what is trending (and how far to trust it), what to watch, directions to consider, caveats."""
+    c = next((x for x in CITIES if x["id"] == city), None)
+    place = c["name"] if c else dict(vi=f"điểm {la:.2f}, {lo:.2f}", en=f"point {la:.2f}, {lo:.2f}")
+    rows = scan_rows(la, lo, start, end, city)
+    if not rows: raise HTTPException(502, "No variable could be analysed for this place")
+    keep = lambda r: dict(var=r["var"], kind=r["kind"], topic=r["topic"], name=r["name"], unit=r["unit"], direction="up" if r["slope"] > 0 else "down",
+                          slope=r["slope"], total=r["total"], effect_sd=r["effect_sd"], p=r["p"], p_mk=r["p_mk"], q=r["q"], span=r["span"],
+                          n=r["n"], coverage=r["coverage"], evidence=r["evidence"])
+    trusted = sorted((r for r in rows if r["sig_fdr"]), key=lambda r: (-LEVEL_RANK[r["evidence"]["level"]], -abs(r["effect_sd"])))
+    findings = [keep(r) for r in trusted[:6]]
+    watch = [keep(r) for r in rows if not r["sig_fdr"] and abs(r["effect_sd"]) >= .5][:4]
+    actions = [action_for(r) for r in trusted if LEVEL_RANK[r["evidence"]["level"]] >= 2][:6]
+    caveats = [
+        dict(vi="Số liệu NASA POWER là sản phẩm mô hình tái phân tích (độ phân giải khoảng nửa độ), không phải số đo tại thành phố; NO₂ và AOD là đo vệ tinh trên một vùng.",
+             en="NASA POWER data is a reanalysis model product (about half-degree resolution), not a measurement at the city; NO₂ and AOD are satellite measurements over an area."),
+        dict(vi="Các gợi ý chỉ là hướng nên xem xét theo bảng quy tắc công khai, không phải khuyến nghị chính sách. Tương quan không chứng minh nhân quả.",
+             en="The suggestions are directions to consider from a public rule table, not policy recommendations. Correlation does not prove causation."),
+    ]
+    for r in trusted[:6]:
+        if r["coverage"] < .9:
+            pct = round(100 * (1 - r["coverage"]))
+            caveats.append(dict(vi=f"{r['name']['vi']}: thiếu khoảng {pct}% số tháng; kết quả kém chắc hơn.", en=f"{r['name']['en']}: about {pct}% of months are missing; the result is less certain."))
+    nfdr = len(trusted); lead = findings[0] if findings else None
+    if lead:
+        dv, de = ("tăng", "rising") if lead["direction"] == "up" else ("giảm", "falling")
+        headline = dict(vi=f"{place['vi']}: {nfdr}/{len(rows)} chỉ số đang thay đổi đáng tin. Rõ nhất: {lead['name']['vi']} đang {dv}.",
+                        en=f"{place['en']}: {nfdr} of {len(rows)} indicators are changing in a trustworthy way. Clearest: {lead['name']['en']} is {de}.")
+    else:
+        headline = dict(vi=f"{place['vi']}: chưa chỉ số nào có xu hướng đáng tin sau hiệu chỉnh nhiều phép thử.",
+                        en=f"{place['en']}: no indicator shows a trustworthy trend after correcting for multiple tests.")
+    return dict(city=city, place=place, period=[start, end], generated=datetime.date.today().isoformat(), n_vars=len(rows), n_trusted=nfdr,
+                headline=headline, findings=findings, watch=watch, actions=actions, caveats=caveats)
+
 # ------------------------------------------------------------------- endpoints
 @app.get("/api/summary")
 def api_summary(var: str, city: str | None = None, lat: float | None = None, lon: float | None = None,
@@ -426,6 +726,156 @@ def api_summary(var: str, city: str | None = None, lat: float | None = None, lon
         if i is not None and len(rows) > 1: rk = (i + 1, len(rows), rows[i])
     s = summarize(df, m["unit"], m["name"], place, lag, rk)
     return dict(var=var, b=b if lag else None, city=city, unit=m["unit"], name=m["name"], place=place, **s)
+
+@app.get("/api/globe")
+def api_globe(var: str, start: int = 2000, end: int = 2024):
+    """All cities for one variable, with yearly anomalies, for the 3D globe and its time-lapse."""
+    return globe_rows(var, start, end)
+
+@app.get("/api/weekly")
+def api_weekly(var: str, city: str | None = None, lat: float | None = None, lon: float | None = None, weeks: int = 52):
+    """Recent weekly means vs the same weeks of earlier years (for the hover card on the detail map)."""
+    if (find_preset(var) or {}).get("kind") == "csv": raise HTTPException(422, "This indicator only has monthly data")
+    meta = meta_of(var); la, lo = resolve_point(city, lat, lon)
+    if not 20 <= weeks <= 104: raise HTTPException(422, "weeks must be between 20 and 104")
+    today = datetime.date.today()
+    s = fetch_daily(la, lo, var, datetime.date(today.year - 5, 1, 1), today)
+    try: r7 = recent7_calc(s, today)
+    except HTTPException: r7 = None
+    return dict(var=var, unit=meta["unit"], name=meta["name"], recent=r7, **weekly_calc(s, weeks))
+
+# ------------------------------------------------------------------ globe heatmap layers (NASA GIBS)
+# The globe heatmap is a real global NASA product (monthly MERRA-2 / CERES maps served by GIBS), one per indicator.
+# We only map an indicator when a GIBS layer measures the same quantity; the layer's own title and colour legend are shown to the user.
+GIBS_CAPS = "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/1.0.0/WMTSCapabilities.xml"
+GIBS_WMS = "https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi"
+GIBS_MAP = {
+    "T2M": "MERRA2_2m_Air_Temperature_Monthly", "TS": "MERRA2_Surface_Skin_Temperature_Monthly",
+    "PRECTOTCORR": "MERRA2_Precipitation_Bias_Corrected_Monthly", "GWETROOT": "MERRA2_Soil_Water_Root_Zone_Monthly",
+    "WS2M": "MERRA2_Surface_Wind_Speed_Monthly", "ALLSKY_SFC_SW_DWN": "CERES_Combined_Surface_Shortwave_Flux_Down_All_Sky_Monthly",
+    "EVLAND": "MERRA2_Evaporation_Land_Monthly", "QV2M": "MERRA2_Total_Precipitable_Water_Vapor_Monthly",
+}
+_GIBS_LOCK = threading.Lock()
+
+
+def parse_gibs_layers(xml, layers):
+    """Pick title, latest time and horizontal legend of the given layers out of the (large) GIBS capabilities document."""
+    import re
+    out = {}
+    for lid in layers:
+        i = xml.find(f"<ows:Identifier>{lid}</ows:Identifier>")
+        if i < 0: continue
+        a = xml.rfind("<Layer>", 0, i); b = xml.find("</Layer>", i); blk = xml[a:b]
+        title = re.search(r"<ows:Title[^>]*>([^<]*)</ows:Title>", blk)
+        default = re.search(r"<Default>([^<]*)</Default>", blk)
+        legend = re.search(r"xlink:href='([^']*_H\.svg)'", blk)
+        if not default: continue
+        out[lid] = {"layer": lid, "title": title.group(1) if title else lid, "time": default.group(1)[:10],
+                    "legend": legend.group(1) if legend else f"https://gibs.earthdata.nasa.gov/legends/{lid}_H.svg"}
+    return out
+
+
+def gibs_layers():
+    f = CACHE / f"gibs_layers_{datetime.date.today().isoformat()}.json"
+    with _GIBS_LOCK:
+        if f.exists():
+            try: return json.load(open(f, encoding="utf-8"))
+            except ValueError: pass
+        try:
+            r = requests.get(GIBS_CAPS, timeout=90)
+        except requests.RequestException as e:
+            raise HTTPException(502, f"Cannot reach NASA GIBS: {e.__class__.__name__}")
+        if r.status_code != 200: raise HTTPException(502, f"NASA GIBS error {r.status_code}")
+        d = parse_gibs_layers(r.text, sorted(set(GIBS_MAP.values())))
+        json.dump(d, open(f, "w", encoding="utf-8"))
+        return d
+
+
+@app.get("/api/heatlayers")
+def heatlayers():
+    """Per indicator: the NASA GIBS map layer to paint on the globe (WMS url template, latest time, title, legend). Indicators without a matching layer are absent."""
+    d = gibs_layers()
+    return {"wms": GIBS_WMS, "base": "BlueMarble_NextGeneration", "layers": {v: d[l] for v, l in GIBS_MAP.items() if l in d}}
+
+
+# ------------------------------------------------------------------ seasonal cycle and its amplitude
+def _period_cycle(d, years, min_per_month):
+    """Calendar-month climatology of the given years. Amplitude = highest minus lowest month, only if >= 9 months have enough data."""
+    x = d[d.y.isin(years)]
+    g = x.groupby("m").v.agg(["mean", "count"])
+    months = [dict(m=m, mean=_f(g.loc[m, "mean"]) if m in g.index and g.loc[m, "count"] >= min_per_month else None,
+                   n=int(g.loc[m, "count"]) if m in g.index else 0) for m in range(1, 13)]
+    ok = [(r["mean"], r["m"]) for r in months if r["mean"] is not None]
+    amp = (max(ok)[0] - min(ok)[0]) if len(ok) >= 9 else None
+    return dict(label=f"{years[0]}\u2013{years[-1]}", years=[int(years[0]), int(years[-1])], months=months, valid_months=len(ok), amp=_f(amp) if amp is not None else None,
+                peak=max(ok)[1] if len(ok) >= 9 else None, trough=min(ok)[1] if len(ok) >= 9 else None)
+
+
+def cycle_calc(df, min_months=9, min_per_month=3):
+    """Seasonal cycle of one monthly series, to show how its swing changes: climatology of the early vs the late half of the years,
+    and the yearly amplitude (highest minus lowest month of each year, years with >= min_months months) with a Mann-Kendall / Sen trend."""
+    d = df.copy(); d["y"] = np.floor(d.t + 1e-9).astype(int)
+    ys = sorted(d.y.unique())
+    if len(ys) < 6: raise HTTPException(422, "Need at least 6 years of data to compare seasonal cycles")
+    h = len(ys) // 2
+    early, late = _period_cycle(d, ys[:h], min_per_month), _period_cycle(d, ys[len(ys) - h:], min_per_month)
+    change = None
+    if early["amp"] and late["amp"] is not None and early["amp"] > 1e-12: change = _f(100 * (late["amp"] - early["amp"]) / early["amp"])
+    yearly = []
+    for y in ys:
+        x = d[d.y == y]
+        yearly.append(dict(y=int(y), n=int(len(x)), mean=_f(x.v.mean()), amp=_f(x.v.max() - x.v.min()) if len(x) >= min_months else None))
+    ya = [r for r in yearly if r["amp"] is not None]
+    trend = None
+    if len(ya) >= 6:
+        yy, aa = np.array([r["y"] for r in ya], float), np.array([r["amp"] for r in ya])
+        tau, pk = stats.kendalltau(yy, aa); sl = stats.theilslopes(aa, yy)[0]
+        trend = dict(slope=_f(sl), tau=_f(tau), p=_f(pk), n=len(ya), sig=bool(pk < .05))
+    return dict(early=early, late=late, amp_change_pct=change, yearly=yearly, amp_trend=trend)
+
+
+@app.get("/api/cycle")
+def api_cycle(vars: str = "T2M,hcm_aod,hcm_no2", city: str | None = None, lat: float | None = None, lon: float | None = None,
+              start: int = 2004, end: int = 2025):
+    """Seasonal-cycle amplitude of several indicators at one place (monthly or yearly view in the UI). Presets (AOD, NO2) exist only for their own city."""
+    la, lo = resolve_point(city, lat, lon)
+    items, skipped = [], []
+    for v in [x.strip() for x in vars.split(",") if x.strip()][:6]:
+        pr = find_preset(v)
+        if pr and pr["kind"] == "csv" and pr.get("city") != city:
+            skipped.append(dict(var=v, reason="no data for this place")); continue
+        try:
+            df, meta = get_series(v, la, lo, start, end)
+            df = df[(df.t >= start) & (df.t < end + 1)].reset_index(drop=True)
+            items.append(dict(var=v, unit=meta.get("unit", ""), name=meta["name"], **cycle_calc(df)))
+        except HTTPException as e:
+            skipped.append(dict(var=v, reason=str(e.detail)))
+    if not items: raise HTTPException(422, "No indicator had enough data: " + "; ".join(x["reason"] for x in skipped))
+    return dict(city=city, lat=la, lon=lo, start=start, end=end, items=items, skipped=skipped)
+
+
+@app.get("/api/correlations")
+def api_correlations():
+    """Candidate correlations between variables of the HCMC case. Computed by the preprocessing module (scripts/prepare_hcm_data.py),
+    not here: this endpoint only serves data/processed/correlations.json."""
+    f = ROOT.parent / "data" / "processed" / "correlations.json"
+    if not f.exists(): raise HTTPException(404, "correlations.json not found: run python scripts/prepare_hcm_data.py")
+    return json.load(open(f, encoding="utf-8"))
+
+
+@app.get("/api/highlights")
+def api_highlights(limit: int = 12):
+    """Notable changes of the LAST 7 DAYS (vs the normal for this time of year) across all cities and indicators. Computed in a background thread:
+    poll until `finished` (items fill in as cities complete). One week, not a climate trend."""
+    key, st = hl_state()
+    with HL_LOCK: rows = list(st["rows"]); done = st["done"]
+    return dict(as_of=key, done=done, total=len(CITIES), finished=bool(st["finished"]), tests=len(rows), items=pick_highlights(rows, max(1, min(limit, 40))))
+
+@app.get("/api/brief")
+def api_brief(city: str | None = None, lat: float | None = None, lon: float | None = None, start: int = 2000, end: int = 2024):
+    """One-page decision brief for planners and consultants."""
+    la, lo = resolve_point(city, lat, lon)
+    return build_brief(city, la, lo, start, end)
 
 @app.get("/api/variables")
 def variables(): return VARS
@@ -456,7 +906,7 @@ def api_analyze(city: str | None = None, lat: float | None = None, lon: float | 
     la, lo = (0.0, 0.0) if (find_preset(var) or {}).get("kind") == "csv" else resolve_point(city, lat, lon)
     df, m = get_series(var, la, lo, start, end)
     a = analyze(df, deseason, annual)
-    a["verdict"] = verdict(a, m["unit"], m["name"]); a["source"] = var; a["quality"] = data_quality(df)
+    a["verdict"] = verdict(a, m["unit"], m["name"]); a["source"] = var; a["quality"] = data_quality(df); a["evidence"] = evidence_for(df)
     return a
 
 @app.get("/api/grid")
@@ -510,7 +960,12 @@ async def api_upload(file: UploadFile = File(...), deseason: bool = True, annual
     nm = name or pathlib.Path(file.filename or "upload").stem
     df = parse_series_csv(raw, min_days)
     a = analyze(df, deseason, annual)
-    a["verdict"] = verdict(a, unit, dict(vi=nm, en=nm)); a["source"] = "upload"; a["quality"] = data_quality(df)
+    a["verdict"] = verdict(a, unit, dict(vi=nm, en=nm)); a["source"] = "upload"; a["quality"] = data_quality(df); a["evidence"] = evidence_for(df)
     return a
 
-app.mount("/", StaticFiles(directory=ROOT.parent / "frontend", html=True), name="web")
+class NoCacheStatic(StaticFiles):
+    """Browsers may keep serving an old app.js / home.js for hours; ask them to revalidate (ETag) on every load so a new version shows up at once."""
+    async def get_response(self, path, scope):
+        r = await super().get_response(path, scope); r.headers["Cache-Control"] = "no-cache"; return r
+
+app.mount("/", NoCacheStatic(directory=ROOT.parent / "frontend", html=True), name="web")

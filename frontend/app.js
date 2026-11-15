@@ -1,10 +1,11 @@
 // Set true to serve frontend/mock/*.json instead of the API (or open the page with ?mock=1).
 const USE_MOCK = false;
 const MOCK = USE_MOCK || /[?&]mock=1/.test(location.search);
-const MOCK_FILE = {"/api/analyze":"analyze","/api/lag":"lag","/api/anomaly":"anomaly","/api/ranking":"ranking","/api/upload":"upload","/api/summary":"summary","/api/scan":"scan",
-  "/api/presets":"presets","/api/grid":"grid","/api/variables":"variables","/api/cities":"cities"};
+const MOCK_FILE = {"/api/analyze":"analyze","/api/lag":"lag","/api/anomaly":"anomaly","/api/ranking":"ranking","/api/upload":"upload","/api/summary":"summary","/api/scan":"scan","/api/weekly":"weekly","/api/heatlayers":"heatlayers","/api/cycle":"cycle","/api/correlations":"correlations","/api/highlights":"highlights",
+  "/api/brief":"brief","/api/globe":"globe","/api/presets":"presets","/api/grid":"grid","/api/variables":"variables","/api/cities":"cities"};
 
 const $ = id => document.getElementById(id);
+const EXTRA = [];          // render hooks added by brief.js / globe.js; called after every language change
 const T = {
 vi:{sub:"Chọn một biến và một nơi, rồi kiểm tra xu hướng, độ trễ giữa hai biến và các tháng bất thường. Dữ liệu: NASA POWER và file Giovanni.",
  l1:"1. Chọn biến",l2:"2. Chọn nơi (danh sách hoặc bấm lên bản đồ)",des:"Bỏ chu kỳ mùa",ann:"Trung bình năm",run:"Phân tích",grid:"Bản đồ xu hướng 3×3",demo:"Chạy ca TP.HCM",
@@ -74,7 +75,7 @@ const G = {
 };
 const tip = k => G[k] ? G[k][lang][1] : "";
 const TOPICS = {heat:{vi:"Nhiệt độ",en:"Heat"},water:{vi:"Nước & mưa",en:"Water & rain"},air:{vi:"Không khí",en:"Air"},land:{vi:"Mặt trời, mây & cháy",en:"Sun, clouds & fire"}};
-const COLORS = ["#0f7c8a","#c2410c","#1d4ed8","#7c3aed","#65a30d"];
+const COLORS = ["#34D399","#FF8A3D","#38BDF8","#C084FC","#A3E635"];
 
 let lang = "vi", VARS = [], CITIES = [], PRESETS = [];
 let pos = {lat:10.78, lon:106.7, city:"hcm"};
@@ -84,7 +85,7 @@ let aMeta = null;                                                 // {unit, labe
 // ------------------------------------------------------------------ helpers
 const t = () => T[lang];
 const f3 = x => (x === null || x === undefined || !isFinite(x)) ? "–" : +x.toPrecision(3);
-const fp = p => p < 0.001 ? "<0.001" : String(+p.toPrecision(2));
+const fp = p => p < 0.001 ? "<0.001" : String(+p.toPrecision(p < 0.1 ? 3 : 2));      // 0.0497 must not read as 0.05
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const allVars = () => VARS.concat(PRESETS.filter(p => p.kind === "csv" && p.available).map(p => ({id:p.id, topic:p.topic || "air", unit:p.unit || "", name:p.name, desc:p.desc})));
@@ -92,6 +93,8 @@ const varOf = id => allVars().find(v => v.id === id);
 const cur = () => varOf($("var").value) || {unit:"", name:{vi:"", en:""}};
 const nameOf = id => (varOf(id) || {name:{vi:id, en:id}}).name[lang];
 const cityName = c => c.name[lang];
+const EVTXT = {strong:{vi:"mạnh", en:"strong"}, moderate:{vi:"vừa", en:"moderate"}, weak:{vi:"yếu", en:"weak"}, none:{vi:"chưa có", en:"none"}};
+const evChip = ev => ev ? `<span class="ev ${ev.level}" title="${esc(tip("evidence"))}"><i></i>${EVTXT[ev.level][lang]} · ${ev.score}/${ev.of}</span>` : "";
 
 async function api(path, init) {
   let url = path;
@@ -119,22 +122,30 @@ function range() {
   if (!(y0 < y1)) throw new Error(t().badyears);
   return `start=${y0}&end=${y1}`;
 }
+const deepMerge = (a, b) => { const o = Object.assign({}, a);
+  for (const k in b) o[k] = (b[k] && typeof b[k] === "object" && !Array.isArray(b[k]) && a && a[k] && typeof a[k] === "object") ? deepMerge(a[k], b[k]) : b[k];
+  return o; };
+const AX = {gridcolor:"rgba(120,220,170,.12)", zerolinecolor:"rgba(120,220,170,.35)", linecolor:"rgba(120,220,170,.25)"};
 const plot = (id, data, layout) => { $(id).hidden = false;
-  return Plotly.react(id, data, Object.assign({margin:{t:10,r:12,b:44,l:56}, legend:{orientation:"h", y:-0.22}, font:{family:"Segoe UI, system-ui, sans-serif", size:13}, hovermode:"closest"}, layout), {responsive:true, displayModeBar:false}); };
+  const base = {margin:{t:10,r:12,b:44,l:56}, legend:{orientation:"h", y:-0.22}, hovermode:"closest", paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)",
+    font:{family:"Be Vietnam Pro, Segoe UI, system-ui, sans-serif", size:13, color:"#CFE6D9"}, xaxis:AX, yaxis:AX,
+    hoverlabel:{bgcolor:"#08180F", bordercolor:"#34D399", font:{color:"#E6F5EC"}}};
+  return Plotly.react(id, data, deepMerge(base, layout), {responsive:true, displayModeBar:false}); };
 
 // --------------------------------------------------------------------- map
+const announce = () => document.dispatchEvent(new CustomEvent("citychange", {detail:pos}));
 const map = L.map("map").setView([pos.lat, pos.lon], 6);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {attribution:"© OpenStreetMap"}).addTo(map);
 const marker = L.marker([pos.lat, pos.lon]).addTo(map), layer = L.layerGroup().addTo(map), cityLayer = L.layerGroup().addTo(map);
-map.on("click", e => { pos = {lat:+e.latlng.lat.toFixed(2), lon:+e.latlng.lng.toFixed(2), city:null}; marker.setLatLng(e.latlng); $("city").value = ""; label(); });
+map.on("click", e => { pos = {lat:+e.latlng.lat.toFixed(2), lon:+e.latlng.lng.toFixed(2), city:null}; marker.setLatLng(e.latlng); $("city").value = ""; label(); announce(); });
 function setCity(id) {
   const c = CITIES.find(x => x.id === id);
   if (!c) { pos.city = null; return; }
-  pos = {lat:c.lat, lon:c.lon, city:c.id}; marker.setLatLng([c.lat, c.lon]); $("city").value = c.id; label();
+  pos = {lat:c.lat, lon:c.lon, city:c.id}; marker.setLatLng([c.lat, c.lon]); $("city").value = c.id; label(); announce();
 }
 function drawCities() {
   cityLayer.clearLayers();
-  CITIES.forEach(c => L.circleMarker([c.lat, c.lon], {radius:5, color:"#0f7c8a", weight:1, fillOpacity:.5}).bindTooltip(cityName(c))
+  CITIES.forEach(c => L.circleMarker([c.lat, c.lon], {radius:5, color:"#34D399", weight:1, fillOpacity:.5}).bindTooltip(cityName(c))
     .on("click", ev => { L.DomEvent.stopPropagation(ev); setCity(c.id); }).addTo(cityLayer));
 }
 function label() { $("pt").textContent = `${t().pt}: ${pos.lat}, ${pos.lon}`; }
@@ -156,7 +167,7 @@ function txt() {
   fillVars();
   $("city").innerHTML = `<option value="">${esc(x.custom)}</option>` + CITIES.map(c => `<option value="${c.id}">${esc(cityName(c))}</option>`).join("");
   $("city").value = pos.city || "";
-  drawCities(); renderAll();
+  drawCities(); renderAll(); EXTRA.forEach(f => f());
 }
 function fillVars() {
   const tp = $("topic").value, vs = $("var").value, list = allVars().filter(v => v.topic === tp);
@@ -178,9 +189,9 @@ function renderAnalysis() {
   const line = s => xs.map(q => vb + s * (q - tb));      // trend lines through the centroid with the CI slopes -> confidence band
   plot("chart", [
     {x:xs, y:line(a.ci[0]), mode:"lines", line:{width:0}, hoverinfo:"skip", showlegend:false},
-    {x:xs, y:line(a.ci[1]), mode:"lines", line:{width:0}, fill:"tonexty", fillcolor:"rgba(194,65,12,.18)", name:x.band, hoverinfo:"skip"},
-    {x:a.t, y:a.v, mode:n > 60 ? "lines" : "lines+markers", name:x.data, line:{color:"#0f7c8a", width:1.6}, marker:{size:6}, hovertemplate:`%{x:.2f}: %{y:.3g}${ub}<extra></extra>`},
-    {x:xs, y:a.fit, mode:"lines", name:x.trend, line:{color:"#c2410c", dash:"dash", width:3}}],
+    {x:xs, y:line(a.ci[1]), mode:"lines", line:{width:0}, fill:"tonexty", fillcolor:"rgba(255,138,61,.2)", name:x.band, hoverinfo:"skip"},
+    {x:a.t, y:a.v, mode:n > 60 ? "lines" : "lines+markers", name:x.data, line:{color:"#34D399", width:1.6}, marker:{size:6}, hovertemplate:`%{x:.2f}: %{y:.3g}${ub}<extra></extra>`},
+    {x:xs, y:a.fit, mode:"lines", name:x.trend, line:{color:"#FF8A3D", dash:"dash", width:3}}],
     {yaxis:{title:u}, xaxis:{title:x.year}});
   const tile = (k, v, badge, tp) => `<div class="tile" title="${esc(tp ? tip(tp) : "")}"><small>${esc(k)}</small><b>${v}</b>${badge || ""}</div>`;
   const ok = (b, y, nn) => `<span class="badge ${b ? "ok" : ""}">${b ? y : nn}</span>`;
@@ -189,8 +200,8 @@ function renderAnalysis() {
     tile(x.ci, `[${f3(a.ci[0])}, ${f3(a.ci[1])}]`, "", "ci"), tile(x.pt_, fp(a.p_t), "", "p"), tile(x.mk, `${f3(a.tau)} / ${fp(a.p_mk)}`, "", "mk"),
     tile(x.sen, `${f3(a.sen)}${esc(ub)}${x.perYear}`, "", "sen"), tile(x.total, `${f3(a.total)}${esc(ub)}`, "", "total"),
     tile(x.r1, f3(a.r1), "", "r1"), tile(x.neff, `${f3(a.n_eff)} / ${a.n}`, "", "neff")].join("");
-  $("verdict").textContent = a.verdict[lang]; $("verdict").style.borderColor = a.sig ? "#0f7c8a" : "#5a6b7b";
-  renderQuality();
+  $("verdict").textContent = a.verdict[lang]; $("verdict").style.borderColor = a.sig ? "#34D399" : "#8FA89B";
+  renderQuality(); if (typeof renderEvidence === "function") renderEvidence();
 }
 const ym = tt => `${Math.floor(tt)}-${String(Math.floor((tt - Math.floor(tt)) * 12) + 1).padStart(2, "0")}`;
 function renderQuality() {
@@ -203,7 +214,7 @@ function renderQuality() {
   $("qNotes").innerHTML = q.notes.map(n => `<li class="${esc(n.level)}">${IC[n.level] || "•"} ${esc(n[lang])}</li>`).join("");
   $("qOut").textContent = q.outliers.length ? x.qOutList + q.outliers.slice(0, 4).map(o => `${ym(o.t)} (${f3(o.v)})`).join(", ") : "";
   const mm = Object.keys(q.missing_by_month).map(Number).sort((u, v) => u - v);
-  if (q.n_missing > 0) plot("qChart", [{type:"bar", x:mm.map(m => "T" + m), y:mm.map(m => q.missing_by_month[m]), marker:{color:"#d97706"}, hovertemplate:`%{x}: %{y}<extra></extra>`}],
+  if (q.n_missing > 0) plot("qChart", [{type:"bar", x:mm.map(m => "T" + m), y:mm.map(m => q.missing_by_month[m]), marker:{color:"#FBBF24"}, hovertemplate:`%{x}: %{y}<extra></extra>`}],
     {height:170, margin:{t:24,r:8,b:28,l:34}, showlegend:false, title:{text:x.qMonth, font:{size:12}, x:0.02}, yaxis:{dtick:1, rangemode:"tozero"}});
   else $("qChart").hidden = true;
 }
@@ -219,16 +230,16 @@ function renderScan() {
   const r = S.scan; if (!r) return; const x = t();
   const nm = v => v.name[lang], fdr = r.filter(v => v.sig_fdr).length;
   $("scanNote").textContent = x.scanNote(fdr, r.length);
-  const col = v => v.sig_fdr ? (v.effect_sd > 0 ? "#c2410c" : "#1d4ed8") : v.sig ? (v.effect_sd > 0 ? "#e9a98b" : "#9db6ee") : "#c8d0d8";
+  const col = v => v.sig_fdr ? (v.effect_sd > 0 ? "#FF8A3D" : "#38BDF8") : v.sig ? (v.effect_sd > 0 ? "#8a5230" : "#2f6f8c") : "#46604f";
   const rows = [...r].sort((p, q) => q.effect_sd - p.effect_sd);
   plot("scanChart", [{type:"bar", orientation:"h", y:rows.map(nm), x:rows.map(v => v.effect_sd), marker:{color:rows.map(col)},
     customdata:rows.map(v => `${f3(v.slope)} ${v.unit}${x.perYear}; q=${fp(v.q)}`), hovertemplate:`%{y}: %{x:.2f} SD<br>%{customdata}<extra></extra>`}],
     {height:70 + 24 * rows.length, margin:{t:8,r:12,b:44,l:200}, showlegend:false, xaxis:{title:x.colEff, zeroline:true}, yaxis:{autorange:"reversed", automargin:true}});
   $("scanWrap").hidden = false;
-  $("scanHead").innerHTML = `<th>${x.colVar}</th><th>${x.colTrend}</th><th title="${esc(tip("effect"))}">${x.colEff}</th><th title="${esc(tip("fdr"))}">${x.colQ}</th><th>${x.colRes}</th>`;
+  $("scanHead").innerHTML = `<th>${x.colVar}</th><th>${x.colTrend}</th><th title="${esc(tip("effect"))}">${x.colEff}</th><th title="${esc(tip("fdr"))}">${x.colQ}</th><th>${x.colRes}</th><th title="${esc(tip("evidence"))}">${x.colEv}</th>`;
   $("scanBody").innerHTML = r.map(v => `<tr><td><a class="city" data-v="${esc(v.var)}">${esc(nm(v))}</a><br><small class="note">${v.kind === "preset" ? x.src_g : x.src_p}</small></td>
     <td class="num">${f3(v.slope)} ${esc(v.unit)}${x.perYear}</td><td class="num">${v.effect_sd > 0 ? "+" : ""}${v.effect_sd.toFixed(2)}</td><td class="num">${fp(v.q)}</td>
-    <td>${v.sig_fdr ? "✔ " + x.rFdr : v.sig ? "(✔) " + x.rSig : "– " + x.rNo}</td></tr>`).join("");
+    <td>${v.sig_fdr ? "✔ " + x.rFdr : v.sig ? "(✔) " + x.rSig : "– " + x.rNo}</td><td>${evChip(v.evidence)}</td></tr>`).join("");
 }
 async function runScan() { S.scan = await api(`/api/scan?${place()}&${range()}`); renderScan(); }
 function selectVar(id) {
@@ -240,11 +251,11 @@ function selectVar(id) {
 function renderLag() {
   const l = S.lag; if (!l) return; $("lagOut").hidden = false; const x = t();
   const bi = l.lags.indexOf(l.best_lag);
-  plot("lagChart", [{type:"bar", x:l.lags.map(k => `${k} ${x.month}`), y:l.r, marker:{color:l.lags.map(k => k === l.best_lag ? "#c2410c" : "#0f7c8a")},
+  plot("lagChart", [{type:"bar", x:l.lags.map(k => `${k} ${x.month}`), y:l.r, marker:{color:l.lags.map(k => k === l.best_lag ? "#FF8A3D" : "#34D399")},
     text:l.r.map(r => r.toFixed(2)), textposition:"outside", cliponaxis:false,
     customdata:l.p.map(fp), hovertemplate:`r = %{y:.3f}<br>p = %{customdata}<extra></extra>`}],
     {yaxis:{title:"r", range:[Math.min(-0.1, ...l.r) * 1.25 - .05, Math.max(0.1, ...l.r) * 1.25 + .05], zeroline:true}, xaxis:{title:x.lagAxis}, showlegend:false,
-     annotations:[{x:bi, y:l.r[bi], text:"★ " + x.lagBest, showarrow:false, yshift:l.r[bi] >= 0 ? 28 : -28, font:{color:"#c2410c"}}]});
+     annotations:[{x:bi, y:l.r[bi], text:"★ " + x.lagBest, showarrow:false, yshift:l.r[bi] >= 0 ? 28 : -28, font:{color:"#FF8A3D"}}]});
   $("lagBest").textContent = `★ ${x.lagBest}: ${l.best_lag} ${x.month}; r = ${f3(l.r[bi])}, p ${l.p[bi] < 0.001 ? "" : "= "}${fp(l.p[bi])} (${l.sig ? x.lagSig : x.lagNo}).  A: ${nameOf(l.a)} → B: ${nameOf(l.b)}`;
   $("lagCav").textContent = "⚠ " + l.caveat[lang];
 }
@@ -259,9 +270,9 @@ function renderAnomaly() {
   const tr = (arr, name, color) => ({x:arr.map(q => q.t), y:arr.map(q => q.v), mode:"markers", name:`${name} (${arr.length})`, marker:{color, size:9, line:{color:"#fff", width:1}}, hovertemplate:`%{x:.2f}: %{y:.3g}${ub}<extra>${name}</extra>`});
   plot("anoChart", [
     {x:m.map(q => q.t), y:m.map(q => q.p05), mode:"lines", line:{width:0}, hoverinfo:"skip", showlegend:false},
-    {x:m.map(q => q.t), y:m.map(q => q.p95), mode:"lines", line:{width:0}, fill:"tonexty", fillcolor:"rgba(15,124,138,.18)", name:x.anoBand, hoverinfo:"skip"},
-    {x:m.map(q => q.t), y:m.map(q => q.v), mode:"lines", line:{color:"#5a6b7b", width:1.2}, name:x.data, hovertemplate:`%{x:.2f}: %{y:.3g}${ub}<extra></extra>`},
-    tr(hi, x.anoHigh, "#c2410c"), tr(lo, x.anoLow, "#1d4ed8")], {yaxis:{title:u}, xaxis:{title:x.year}});
+    {x:m.map(q => q.t), y:m.map(q => q.p95), mode:"lines", line:{width:0}, fill:"tonexty", fillcolor:"rgba(52,211,153,.16)", name:x.anoBand, hoverinfo:"skip"},
+    {x:m.map(q => q.t), y:m.map(q => q.v), mode:"lines", line:{color:"#8FA89B", width:1.2}, name:x.data, hovertemplate:`%{x:.2f}: %{y:.3g}${ub}<extra></extra>`},
+    tr(hi, x.anoHigh, "#FF8A3D"), tr(lo, x.anoLow, "#38BDF8")], {yaxis:{title:u}, xaxis:{title:x.year}});
   $("anoNote").textContent = x.anoFlag(d.n_flagged);
 }
 async function runAnomaly() { S.ano = await api(`/api/anomaly?${place()}&var=${encodeURIComponent($("var").value)}&${range()}`); renderAnomaly(); }
@@ -277,7 +288,7 @@ function renderRank(fit) {
    <td><a class="city" data-c="${c.city}">${esc(c.name[lang])}</a></td><td class="num">${f3(c.slope)}</td><td class="num">${fp(c.p)}</td><td class="num">${fp(c.q)}</td><td>${mark(c)}</td></tr>`).join("");
   $("rankCmp").disabled = false;
   layer.clearLayers(); const mx = Math.max(...r.map(c => Math.abs(c.slope))) || 1;
-  r.forEach(c => L.circleMarker([c.lat, c.lon], {radius:11, color:c.slope > 0 ? "#c2410c" : "#1d4ed8", weight:c.sig_fdr ? 4 : 1, fillOpacity:.2 + .6 * Math.abs(c.slope) / mx})
+  r.forEach(c => L.circleMarker([c.lat, c.lon], {radius:11, color:c.slope > 0 ? "#FF8A3D" : "#38BDF8", weight:c.sig_fdr ? 4 : 1, fillOpacity:.2 + .6 * Math.abs(c.slope) / mx})
     .bindTooltip(`${c.name[lang]}: ${f3(c.slope)} ${u}${x.perYear}, p=${fp(c.p)}, q=${fp(c.q)} ${mark(c)}`).addTo(layer));
   if (fit && r.length) map.fitBounds(L.latLngBounds(r.map(c => [c.lat, c.lon])), {padding:[30, 30], maxZoom: 8});
   const up = r.filter(c => c.sig_fdr && c.slope > 0).map(c => c.name[lang]), dn = r.filter(c => c.sig_fdr && c.slope < 0).map(c => c.name[lang]);
@@ -338,13 +349,13 @@ function renderSummary() {
   $("sumChips").innerHTML = chips.join("");
   $("sumList").innerHTML = s.bullets.map(b => `<li class="${esc(b.tone)}"><span class="ic" aria-hidden="true">${ICON[b.kind] || "•"}</span><span>${esc(b[lang])}</span></li>`).join("");
   $("sumSrc").textContent = x.sumSrc(s.period[0], s.period[1]);
-  const y = s.yearly.y, v = s.yearly.v, tr = [{x:y, y:v, mode:"lines+markers", name:x.sumYear, line:{color:"#0f7c8a", width:2}, marker:{size:6}, hovertemplate:`%{x}: %{y:.3g}${ub}<extra></extra>`}];
+  const y = s.yearly.y, v = s.yearly.v, tr = [{x:y, y:v, mode:"lines+markers", name:x.sumYear, line:{color:"#34D399", width:2}, marker:{size:6}, hovertemplate:`%{x}: %{y:.3g}${ub}<extra></extra>`}];
   if (f.block_years) { const k = f.block_years;
-    tr.push({x:[y[0], y[k - 1]], y:[f.first_mean, f.first_mean], mode:"lines", name:x.sumFirst(k), line:{color:"#1d4ed8", width:4}, hoverinfo:"skip"},
-            {x:[y[y.length - k], y[y.length - 1]], y:[f.last_mean, f.last_mean], mode:"lines", name:x.sumLast(k), line:{color:"#c2410c", width:4}, hoverinfo:"skip"}); }
+    tr.push({x:[y[0], y[k - 1]], y:[f.first_mean, f.first_mean], mode:"lines", name:x.sumFirst(k), line:{color:"#38BDF8", width:4}, hoverinfo:"skip"},
+            {x:[y[y.length - k], y[y.length - 1]], y:[f.last_mean, f.last_mean], mode:"lines", name:x.sumLast(k), line:{color:"#FF8A3D", width:4}, hoverinfo:"skip"}); }
   if (f.max_year !== undefined) { const i = y.indexOf(f.max_year), j = y.indexOf(f.min_year);
     tr.push({x:[y[i], y[j]], y:[v[i], v[j]], mode:"markers+text", text:[`${x.sumMax} ${y[i]}`, `${x.sumMin} ${y[j]}`], textposition:["top center", "bottom center"], cliponaxis:false,
-             marker:{size:12, color:["#c2410c", "#1d4ed8"], line:{color:"#fff", width:2}}, showlegend:false, hoverinfo:"skip"}); }
+             marker:{size:12, color:["#FF8A3D", "#38BDF8"], line:{color:"#fff", width:2}}, showlegend:false, hoverinfo:"skip"}); }
   const pad = (Math.max(...v) - Math.min(...v)) * .25 || 1;
   plot("sumChart", tr, {yaxis:{title:u, range:[Math.min(...v) - pad, Math.max(...v) + pad]}, xaxis:{title:x.year}});
 }
@@ -391,7 +402,7 @@ $("upRun").onclick = e => task(e.currentTarget, runUpload);
 $("grid").onclick = e => task(e.currentTarget, async () => {
   const g = await api(`/api/grid?lat=${pos.lat}&lon=${pos.lon}&var=${encodeURIComponent($("var").value)}&${range()}`);
   layer.clearLayers(); const m = Math.max(...g.map(c => Math.abs(c.slope))) || 1;
-  g.forEach(c => L.circleMarker([c.lat, c.lon], {radius:14, color:c.slope > 0 ? "#c2410c" : "#1d4ed8", weight:c.sig ? 4 : 1, fillOpacity:.2 + .6 * Math.abs(c.slope) / m})
+  g.forEach(c => L.circleMarker([c.lat, c.lon], {radius:14, color:c.slope > 0 ? "#FF8A3D" : "#38BDF8", weight:c.sig ? 4 : 1, fillOpacity:.2 + .6 * Math.abs(c.slope) / m})
     .bindTooltip(`${f3(c.slope)} ${cur().unit}${t().perYear}, p=${fp(c.p)}${c.sig ? " ✔" : ""}`).addTo(layer));
 });
 $("rankBody").addEventListener("click", e => { const c = e.target.dataset && e.target.dataset.c; if (c) { setCity(c); map.setView([pos.lat, pos.lon], 8); } });
@@ -409,5 +420,5 @@ drop.addEventListener("drop", e => { if (e.dataTransfer.files.length) $("file").
   txt();
   try { [VARS, CITIES, PRESETS] = await Promise.all([api("/api/variables"), api("/api/cities"), api("/api/presets")]); }
   catch (e) { showErr(e.message); return; }
-  txt();
+  txt(); window.APP_READY = true; document.dispatchEvent(new Event("app-ready"));
 })();

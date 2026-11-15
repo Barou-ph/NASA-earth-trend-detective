@@ -1,0 +1,423 @@
+{
+ "city": "hcm",
+ "years": [
+  2004,
+  2025
+ ],
+ "tests": 32,
+ "thresholds": {
+  "q": 0.05,
+  "abs_r": 0.3
+ },
+ "skipped": [
+  {
+   "var": "hcm_fire",
+   "reason": "no fire preset (needs >= 5 years of FIRMS)"
+  }
+ ],
+ "names": {
+  "T2M": {
+   "vi": "Nhiệt độ không khí 2 m",
+   "en": "2-m air temperature"
+  },
+  "hcm_aod": {
+   "vi": "Bụi mịn trong khí quyển (AOD)",
+   "en": "Aerosol optical depth (AOD)"
+  },
+  "hcm_no2": {
+   "vi": "NO₂ tầng đối lưu",
+   "en": "Tropospheric NO₂"
+  },
+  "PRECTOTCORR": {
+   "vi": "Lượng mưa",
+   "en": "Precipitation"
+  },
+  "WS2M": {
+   "vi": "Tốc độ gió 2 m",
+   "en": "2-m wind speed"
+  },
+  "RH2M": {
+   "vi": "Độ ẩm tương đối",
+   "en": "Relative humidity"
+  }
+ },
+ "pairs": [
+  {
+   "a": "WS2M",
+   "b": "hcm_no2",
+   "expect": "-",
+   "why": {
+    "vi": "Gió mạnh phân tán khí thải.",
+    "en": "Strong wind disperses emissions."
+   },
+   "lags": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "r": [
+    -0.1970729606154252,
+    0.019113728095906675,
+    0.12316695042097443,
+    0.09378592176658812
+   ],
+   "p": [
+    0.002931786948439466,
+    0.776813890440842,
+    0.06714555563851608,
+    0.1665765237236917
+   ],
+   "n": [
+    248,
+    240,
+    239,
+    239
+   ],
+   "best_lag": 0,
+   "q": [
+    0.09381718235006291,
+    0.801872403035708,
+    0.2784036268084403,
+    0.4100345199352411
+   ],
+   "r_best": -0.1970729606154252,
+   "p_best": 0.002931786948439466,
+   "q_best": 0.09381718235006291,
+   "n_best": 248,
+   "status": "weak",
+   "agrees": true
+  },
+  {
+   "a": "RH2M",
+   "b": "hcm_aod",
+   "expect": null,
+   "why": {
+    "vi": "Độ ẩm làm hạt bụi nở ra, đổi độ dày quang học.",
+    "en": "Humidity swells particles and changes optical depth."
+   },
+   "lags": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "r": [
+    -0.08392541207566406,
+    -0.15455700431860217,
+    -0.08158637703316077,
+    -0.1350946034339161
+   ],
+   "p": [
+    0.20879054159580548,
+    0.03097643091753873,
+    0.25933986259561526,
+    0.06311352880774983
+   ],
+   "n": [
+    226,
+    195,
+    193,
+    190
+   ],
+   "best_lag": 1,
+   "q": [
+    0.4295100170119583,
+    0.2784036268084403,
+    0.4367829264768257,
+    0.2784036268084403
+   ],
+   "r_best": -0.15455700431860217,
+   "p_best": 0.03097643091753873,
+   "q_best": 0.2784036268084403,
+   "n_best": 195,
+   "status": "weak",
+   "agrees": null
+  },
+  {
+   "a": "T2M",
+   "b": "hcm_no2",
+   "expect": null,
+   "why": {
+    "vi": "Nhiệt độ ảnh hưởng quang hóa và độ xáo trộn của lớp khí quyển sát đất.",
+    "en": "Temperature affects photochemistry and mixing of the near-surface air."
+   },
+   "lags": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "r": [
+    0.08332154513370404,
+    0.12508020724921717,
+    0.13767681920943295,
+    0.12573621403313384
+   ],
+   "p": [
+    0.22988817762860675,
+    0.07291770631963103,
+    0.04659097771785727,
+    0.07320661344178221
+   ],
+   "n": [
+    248,
+    240,
+    239,
+    239
+   ],
+   "best_lag": 2,
+   "q": [
+    0.4327306873009068,
+    0.2784036268084403,
+    0.2784036268084403,
+    0.2784036268084403
+   ],
+   "r_best": 0.13767681920943295,
+   "p_best": 0.04659097771785727,
+   "q_best": 0.2784036268084403,
+   "n_best": 239,
+   "status": "weak",
+   "agrees": null
+  },
+  {
+   "a": "T2M",
+   "b": "hcm_aod",
+   "expect": null,
+   "why": {
+    "vi": "Nhiệt độ cao đi cùng mùa khô (ít mưa rửa trôi) nên bụi có thể tăng.",
+    "en": "High temperature goes with the dry season (less rain washout), so aerosols may rise."
+   },
+   "lags": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "r": [
+    -0.0457758685472319,
+    0.08923730287232409,
+    0.03365386448991502,
+    0.1253786852028272
+   ],
+   "p": [
+    0.49352990082081544,
+    0.21475500850597914,
+    0.6421972015125625,
+    0.08477474346525046
+   ],
+   "n": [
+    226,
+    195,
+    193,
+    190
+   ],
+   "best_lag": 3,
+   "q": [
+    0.7084877439951845,
+    0.4295100170119583,
+    0.7221966848308621,
+    0.2784036268084403
+   ],
+   "r_best": 0.1253786852028272,
+   "p_best": 0.08477474346525046,
+   "q_best": 0.2784036268084403,
+   "n_best": 190,
+   "status": "none",
+   "agrees": null
+  },
+  {
+   "a": "PRECTOTCORR",
+   "b": "hcm_aod",
+   "expect": "-",
+   "why": {
+    "vi": "Mưa rửa trôi bụi khỏi khí quyển.",
+    "en": "Rain washes aerosols out of the air."
+   },
+   "lags": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "r": [
+    -0.03728229438311342,
+    -0.11484860743871644,
+    0.11769184548440825,
+    -0.12449846517821497
+   ],
+   "p": [
+    0.5771436609631672,
+    0.10987457434418703,
+    0.10308538310192263,
+    0.08700113337763758
+   ],
+   "n": [
+    226,
+    195,
+    193,
+    190
+   ],
+   "best_lag": 3,
+   "q": [
+    0.7221966848308621,
+    0.29299886491783206,
+    0.29299886491783206,
+    0.2784036268084403
+   ],
+   "r_best": -0.12449846517821497,
+   "p_best": 0.08700113337763758,
+   "q_best": 0.2784036268084403,
+   "n_best": 190,
+   "status": "none",
+   "agrees": true
+  },
+  {
+   "a": "PRECTOTCORR",
+   "b": "hcm_no2",
+   "expect": "-",
+   "why": {
+    "vi": "Mưa và mây làm giảm NO₂ trong cột khí.",
+    "en": "Rain and cloud reduce the NO₂ column."
+   },
+   "lags": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "r": [
+    0.08145705097048768,
+    0.043421891154907126,
+    -0.02940537779560659,
+    0.11904560742386228
+   ],
+   "p": [
+    0.20760811396799597,
+    0.5092255659965389,
+    0.6544907456279687,
+    0.07000870894224913
+   ],
+   "n": [
+    248,
+    240,
+    239,
+    239
+   ],
+   "best_lag": 3,
+   "q": [
+    0.4295100170119583,
+    0.7084877439951845,
+    0.7221966848308621,
+    0.2784036268084403
+   ],
+   "r_best": 0.11904560742386228,
+   "p_best": 0.07000870894224913,
+   "q_best": 0.2784036268084403,
+   "n_best": 239,
+   "status": "none",
+   "agrees": false
+  },
+  {
+   "a": "hcm_aod",
+   "b": "hcm_no2",
+   "expect": "+",
+   "why": {
+    "vi": "Cùng nguồn phát thải (giao thông, đốt) và cùng chịu thời tiết.",
+    "en": "Shared sources (traffic, burning) and shared weather."
+   },
+   "lags": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "r": [
+    0.0595556287291027,
+    0.02617174906427959,
+    0.033849760551190954,
+    0.08702133719304762
+   ],
+   "p": [
+    0.3860018101266805,
+    0.726544814481281,
+    0.653008437852371,
+    0.24808127302578767
+   ],
+   "n": [
+    214,
+    181,
+    179,
+    178
+   ],
+   "best_lag": 3,
+   "q": [
+    0.6176028962026888,
+    0.7749811354466998,
+    0.7221966848308621,
+    0.4367829264768257
+   ],
+   "r_best": 0.08702133719304762,
+   "p_best": 0.24808127302578767,
+   "q_best": 0.4367829264768257,
+   "n_best": 178,
+   "status": "none",
+   "agrees": true
+  },
+  {
+   "a": "WS2M",
+   "b": "hcm_aod",
+   "expect": "-",
+   "why": {
+    "vi": "Gió mạnh phân tán bụi.",
+    "en": "Strong wind disperses aerosols."
+   },
+   "lags": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "r": [
+    -0.03327846494857853,
+    -0.058258608997363265,
+    -0.03744662629221585,
+    0.017345280592418223
+   ],
+   "p": [
+    0.6187316240322757,
+    0.4185184927050993,
+    0.6051372160997557,
+    0.8122469410674212
+   ],
+   "n": [
+    226,
+    195,
+    193,
+    190
+   ],
+   "best_lag": 1,
+   "q": [
+    0.7221966848308621,
+    0.637742465074437,
+    0.7221966848308621,
+    0.8122469410674212
+   ],
+   "r_best": -0.058258608997363265,
+   "p_best": 0.4185184927050993,
+   "q_best": 0.637742465074437,
+   "n_best": 195,
+   "status": "none",
+   "agrees": true
+  }
+ ],
+ "method": {
+  "vi": "Chuỗi tháng đã trừ chu kỳ mùa và xu hướng tuyến tính riêng của từng chuỗi; r Pearson ở độ trễ 0–3 tháng (dương = chuỗi thứ hai theo sau); p theo cỡ mẫu hiệu dụng (Bretherton) vì chuỗi tự tương quan; q = hiệu chỉnh Benjamini-Hochberg trên mọi cặp × độ trễ đã thử.",
+  "en": "Monthly series with the seasonal cycle and each series' own linear trend removed; Pearson r at lags 0-3 months (positive = the second series follows); p uses the effective sample size (Bretherton) because the series are autocorrelated; q = Benjamini-Hochberg over every pair x lag tested."
+ },
+ "caveat": {
+  "vi": "Tương quan không chứng minh nhân quả. Một cặp chỉ là ứng viên để xem xét khi q < 0,05 và |r| ≥ 0,3; chiều tương quan cũng nên khớp cơ chế vật lý.",
+  "en": "Correlation does not prove causation. A pair is only a candidate when q < 0.05 and |r| >= 0.3; the sign should also match the physical mechanism."
+ },
+ "generated": "2026-11-15"
+}
