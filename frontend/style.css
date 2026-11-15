@@ -305,7 +305,7 @@ a.city{color:var(--green);cursor:pointer;text-decoration:underline;text-decorati
 }
 @media (max-width:760px){
  body{font-size:14px}
- .top{padding-top:8px;gap:6px}.row-top{gap:6px}.brand{padding:5px 10px}.bt b{font-size:.8rem;letter-spacing:.08em}.mark{width:32px;height:32px}.mark svg{width:22px;height:22px}
+ .top{padding-top:8px;gap:6px}.row-top{gap:6px}.brand{padding:5px 10px}.bt b{font-size:.8rem;letter-spacing:.08em}.mark{width:32px;height:32px}.mark svg{width:22px;height:22px}.mark.logo,.mark.logo svg{width:38px;height:38px}
  .tools{padding:5px 7px;gap:5px;flex:1}.toggles{display:none}.sep{display:none}.tool{padding:6px 9px;font-size:.7rem}
  .modes .mode{padding:7px 10px;font-size:.7rem}
  .filterbar{padding:5px 8px;flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;width:100%;scrollbar-width:none}.chips{flex-wrap:nowrap}.chip{flex:none;white-space:nowrap;padding:5px 9px;font-size:.68rem}.fl,.sensor,.hlabel,.bt{display:none}
@@ -371,6 +371,8 @@ a,a.city{color:var(--acc)}
 .brand{gap:10px}
 .mark{width:34px;height:34px;border-radius:8px;background:var(--panel);border-color:var(--line)}
 .mark svg{width:24px;height:24px}
+.mark.logo{width:48px;height:48px;border:0;background:transparent;border-radius:0}
+.mark.logo svg{width:48px;height:48px}
 .bt b{font:700 14px var(--hud);letter-spacing:.16em}.bt small{font-size:11px;color:var(--mute)}
 .modes{margin-left:auto}
 .mode{border-radius:0;border:0;border-bottom:2px solid transparent;padding:6px 12px;font:500 13px var(--hud);letter-spacing:0;color:var(--mute);background:transparent;min-height:0}
@@ -513,3 +515,8 @@ button.load:hover:not(:disabled){background:rgba(90,169,255,.14)}
 .stage.heat .pick{bottom:70px}
 .ttl{max-width:calc(100% - 350px)}
 @media (max-width:1000px){.home-wrap{grid-template-columns:1fr}.ttl{max-width:calc(100% - 28px);top:100px}.hm-tr{top:58px}}
+
+/* logo (image supplied by the team) */
+.mark.logo{width:56px;height:56px;border-radius:12px;background:#000;border:1px solid var(--line);overflow:visible}
+.mark.logo img{width:100%;height:100%;display:block;border-radius:9px;object-fit:cover}
+@media (max-width:760px){.mark.logo{width:38px;height:38px}}

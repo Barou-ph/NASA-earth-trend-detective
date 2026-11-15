@@ -127,3 +127,4 @@ $("bCopy").onclick = async () => { const text = briefText();
   $("bCopy").textContent = t().bCopied; setTimeout(() => { $("bCopy").textContent = t().bCopy; }, 1500); };
 S.brief = null;
 renderHero();
+if (new URLSearchParams(location.search).get("run") === "1") document.addEventListener("app-ready", () => setTimeout(() => $("bRun").click(), 400));   // ?run=1 builds the brief on load (used to capture the screen for the video)

@@ -113,7 +113,7 @@
   // --- real imagery: NASA Blue Marble + coastlines from GIBS (equirectangular), sampled per pixel onto the sphere
   const WMS = (map, layer, w, h, fmt, time) => `${map.wms}?SERVICE=WMS&REQUEST=GetMap&VERSION=1.1.1&STYLES=&SRS=EPSG:4326&BBOX=-180,-90,180,90&LAYERS=${layer}&FORMAT=${fmt}&TRANSPARENT=${fmt === "image/png" ? "TRUE" : "FALSE"}&WIDTH=${w}&HEIGHT=${h}${time ? "&TIME=" + time : ""}`;
   const loadImg = u => new Promise((ok, no) => { const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => ok(i); i.onerror = () => no(new Error("img")); i.src = u; });
-  function toU32(imgs, w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; const k = c.getContext("2d", {willReadFrequently: true}); imgs.forEach(i => k.drawImage(i, 0, 0, w, h)); const d = k.getImageData(0, 0, w, h); return {w, h, d: new Uint32Array(d.data.buffer)}; }
+  function toU32(imgs, w, h, blur) { const c = document.createElement("canvas"); c.width = w; c.height = h; const k = c.getContext("2d", {willReadFrequently: true}); if (blur) k.filter = `blur(${blur}px)`; imgs.forEach(i => { if (blur) { k.drawImage(i, -w, 0, w, h); k.drawImage(i, w, 0, w, h); } k.drawImage(i, 0, 0, w, h); }); const d = k.getImageData(0, 0, w, h); return {w, h, d: new Uint32Array(d.data.buffer)}; }
   async function ensureMap() { if (heatMap) return heatMap; heatMap = await api("/api/heatlayers"); return heatMap; }
   async function loadBase() {
     try { const m = await ensureMap(); const [a, b] = await Promise.all([loadImg(WMS(m, m.base, 4096, 2048, "image/jpeg")), loadImg(WMS(m, "Coastlines_15m", 4096, 2048, "image/png")).catch(() => null)]);
@@ -129,7 +129,7 @@
     if (!heatOn || !L) { HEAT = null; heatMsg = heatOn && !L ? x.hmNoLayer : ""; dirty = true; legend(); return; }
     heatMsg = x.hmHeatLoad; legend();
     try {
-      if (!HEATC.has(L.layer + L.time)) HEATC.set(L.layer + L.time, toU32([await loadImg(WMS(m, L.layer, 2048, 1024, "image/png", L.time))], 2048, 1024));
+      if (!HEATC.has(L.layer + L.time)) HEATC.set(L.layer + L.time, toU32([await loadImg(WMS(m, L.layer, 2048, 1024, "image/png", L.time))], 2048, 1024, 5));
       if (my !== heatReq) return; HEAT = HEATC.get(L.layer + L.time); heatMsg = ""; heatInfo = L;
     } catch (e) { if (my !== heatReq) return; HEAT = null; heatMsg = x.hmHeatErr; }
     dirty = true; legend();
@@ -152,9 +152,13 @@
         const px = T[ty * TW + ((u * TW) | 0)], sh = (.38 + .62 * Math.pow(Zv, .42)) * dim;
         let r = (px & 255) * sh, g = ((px >> 8) & 255) * sh, b = ((px >> 16) & 255) * sh;
         if (hv) {
-          let hy = ((.5 - lat / Math.PI) * HH) | 0; if (hy >= HH) hy = HH - 1; else if (hy < 0) hy = 0;
-          const h = HD[hy * HW + ((u * HW) | 0)], a = (h >>> 24) / 255 * .72;
-          if (a > 0) { const s2 = .55 + .45 * Zv; r += ((h & 255) * s2 - r) * a; g += (((h >> 8) & 255) * s2 - g) * a; b += (((h >> 16) & 255) * s2 - b) * a; }
+          const fy = Math.min(HH - 1.001, Math.max(0, (.5 - lat / Math.PI) * HH - .5)), fx = u * HW - .5, y0 = fy | 0, wy = fy - y0, xf = Math.floor(fx), wx = fx - xf, x0 = (xf + HW) % HW, x1 = (x0 + 1) % HW;
+          const h00 = HD[y0 * HW + x0], h10 = HD[y0 * HW + x1], h01 = HD[(y0 + 1) * HW + x0], h11 = HD[(y0 + 1) * HW + x1];
+          const w00 = (1 - wx) * (1 - wy) * (h00 >>> 24), w10 = wx * (1 - wy) * (h10 >>> 24), w01 = (1 - wx) * wy * (h01 >>> 24), w11 = wx * wy * (h11 >>> 24), wa = w00 + w10 + w01 + w11;
+          if (wa > 0) {
+            const hr = (w00 * (h00 & 255) + w10 * (h10 & 255) + w01 * (h01 & 255) + w11 * (h11 & 255)) / wa, hg = (w00 * ((h00 >> 8) & 255) + w10 * ((h10 >> 8) & 255) + w01 * ((h01 >> 8) & 255) + w11 * ((h11 >> 8) & 255)) / wa, hb = (w00 * ((h00 >> 16) & 255) + w10 * ((h10 >> 16) & 255) + w01 * ((h01 >> 16) & 255) + w11 * ((h11 >> 16) & 255)) / wa;
+            const a = wa / 255 * .72, s2 = .55 + .45 * Zv; r += (hr * s2 - r) * a; g += (hg * s2 - g) * a; b += (hb * s2 - b) * a;
+          }
         }
         offU32[PXI[k]] = 0xFF000000 | (b << 16) | (g << 8) | r;
       }
