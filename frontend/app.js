@@ -77,7 +77,7 @@ const tip = k => G[k] ? G[k][lang][1] : "";
 const TOPICS = {heat:{vi:"Nhiệt độ",en:"Heat"},water:{vi:"Nước & mưa",en:"Water & rain"},air:{vi:"Không khí",en:"Air"},land:{vi:"Mặt trời, mây & cháy",en:"Sun, clouds & fire"}};
 const COLORS = ["#34D399","#FF8A3D","#38BDF8","#C084FC","#A3E635"];
 
-let lang = "vi", VARS = [], CITIES = [], PRESETS = [];
+let lang = new URLSearchParams(location.search).get("lang") === "en" ? "en" : "vi", VARS = [], CITIES = [], PRESETS = [];
 let pos = {lat:10.78, lon:106.7, city:"hcm"};
 const S = {scan:null, sum:null, a:null, lag:null, ano:null, rank:null, cmp:null};     // last results, re-rendered on language change
 let aMeta = null;                                                 // {unit, label} of the last analysis
