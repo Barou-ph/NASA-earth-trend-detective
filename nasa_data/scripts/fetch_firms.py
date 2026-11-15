@@ -39,10 +39,10 @@ def download(key):
     for source, first in SOURCES.items():
         for year in range(START_YEAR, END_YEAR + 1):
             f = OUT / f"{source}_{year}.csv"
-            if f.exists():
+            if f.exists() and year < dt.date.today().year:   # năm hiện tại luôn tải lại
                 continue
             start = max(dt.date(year, 1, 1), first)
-            end = dt.date(year, 12, 31)
+            end = min(dt.date(year, 12, 31), dt.date.today())
             if start > end:
                 continue
             frames, d = [], start

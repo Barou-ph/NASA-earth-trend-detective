@@ -1,3 +1,7 @@
+"""Thời tiết theo THÁNG từ NASA POWER cho nhiều thành phố (không cần tài khoản).
+Chạy:  python -m scripts.fetch_power
+Kết quả: data/raw/power_monthly_cities.csv  (cache JSON từng thành phố trong data/raw/power_cache/)
+"""
 import json, time
 import requests, pandas as pd
 from .config import RAW, CITIES, POWER_PARAMS, START_YEAR, END_YEAR
@@ -32,7 +36,7 @@ def to_rows(city, data):
 def main():
     all_rows = []
     for city, (lat, lon) in CITIES.items():
-        f = CACHE / f"{city.replace(' ', '_')}.json"
+        f = CACHE / f"{city.replace(' ', '_')}_{START_YEAR}_{END_YEAR}.json"
         try:
             if f.exists():
                 data = json.loads(f.read_text())

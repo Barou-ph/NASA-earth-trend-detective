@@ -1,3 +1,8 @@
+"""Gộp chuỗi theo NGÀY (đã qua parse_giovanni) thành trung bình THÁNG, kèm số ngày hợp lệ.
+Chạy:  python -m scripts.aggregate_monthly data/raw/NO2_clean.csv [số_ngày_tối_thiểu]
+Kết quả: data/raw/NO2_clean_monthly.csv  (cột: date, value, n_valid_days, n_days)
+Tháng có ít ngày hợp lệ hơn ngưỡng (mặc định 5) -> value để trống.
+"""
 import sys
 from pathlib import Path
 import pandas as pd

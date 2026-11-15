@@ -1,7 +1,3 @@
-fastapi
-uvicorn
 requests
 pandas
-numpy
-scipy
-python-multipart
+matplotlib
