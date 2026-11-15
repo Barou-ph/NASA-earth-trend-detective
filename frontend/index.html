@@ -1,61 +1,117 @@
 <!DOCTYPE html><html lang="vi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Earth Trend Detective</title>
+<meta name="description" content="Biến dữ liệu vệ tinh NASA thành bản tóm tắt có điểm tin cậy cho nhà hoạch định đô thị và đơn vị tư vấn môi trường.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-<style>
-:root{--ink:#12263a;--mute:#5a6b7b;--line:#cdd9e2;--bg:#eef3f6;--card:#fff;--teal:#0f7c8a;--orange:#c2410c;--blue:#1d4ed8;--warn:#fff7e6;--warnb:#d97706;--errbg:#fef2f2;--errb:#b91c1c}
-*{box-sizing:border-box}
-body{margin:0;font:16px/1.5 "Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
-main{max-width:980px;margin:auto;padding:16px 14px 60px}
-h1{font:700 1.8rem Georgia,serif;margin:0;flex:1}h2{font-size:1.05rem;margin:0 0 6px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin:12px 0}
-.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:8px 0}
-.row>label{display:flex;gap:6px;align-items:center}
-.grow{flex:1 1 180px;min-width:0}
-button,select,input{font:inherit;padding:8px 12px;border:1px solid var(--line);border-radius:6px;background:#fff;color:inherit;max-width:100%}
-button{cursor:pointer;min-height:40px}button:disabled{opacity:.55;cursor:wait}
-button.go{background:var(--teal);color:#fff;border-color:var(--teal)}
-button.demo{background:var(--orange);color:#fff;border-color:var(--orange);font-weight:600}
-button.load::after{content:"";display:inline-block;width:.9em;height:.9em;margin-left:8px;vertical-align:-2px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .7s linear infinite}
-@keyframes sp{to{transform:rotate(360deg)}}
-#map{height:340px;border-radius:8px}
-.note{color:var(--mute);font-size:.9rem;margin:4px 0}
-#status{min-height:1.4em;color:var(--teal);font-size:.95rem}
-#err{display:none;background:var(--errbg);border-left:4px solid var(--errb);padding:8px 12px;border-radius:6px;margin:8px 0}
-#verdict,.callout{border-left:4px solid var(--teal);padding:8px 12px;background:var(--bg);margin-top:10px;border-radius:0 6px 6px 0}
-.callout.warn{background:var(--warn);border-color:var(--warnb)}
-.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:8px}
-.tile{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fafcfd}
-.tile small{display:block;color:var(--mute);font-size:.78rem}.tile b{font-size:1.05rem;word-break:break-word}
-.badge{display:inline-block;font-size:.75rem;padding:1px 8px;border-radius:99px;margin-left:6px;vertical-align:middle;background:#e5e7eb;color:#374151}
-.badge.ok{background:#d1f0f3;color:#075e69}
-.tw{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:420px}
-td,th{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left}th{font-size:.85rem;color:var(--mute)}
-td.num{text-align:right;font-variant-numeric:tabular-nums}tr.pick{background:#eef7f8}
-a.city{color:var(--teal);cursor:pointer;text-decoration:underline}
-input[type=number]{width:84px}input[type=file]{width:100%}
-.up{border:2px dashed var(--line);border-radius:8px;padding:12px;background:#fafcfd}
-.up.over{border-color:var(--teal);background:#eef7f8}
-.chart{min-height:260px}.chart.small{min-height:150px}
-button.demo2{background:#fff;color:var(--orange);border-color:var(--orange);font-weight:600}
-h3{font-size:.98rem;margin:14px 0 4px}
-#qNotes{list-style:none;margin:6px 0;padding:0}#qNotes li{padding:6px 10px;margin:4px 0;border-left:4px solid var(--line);background:#fafcfd;border-radius:0 6px 6px 0;font-size:.92rem}
-#qNotes li.ok{border-color:var(--teal)}#qNotes li.warn{border-color:var(--warnb);background:var(--warn)}
-#glossList dt{font-weight:600;margin-top:10px}#glossList dd{margin:2px 0 0}summary{cursor:pointer;font-weight:600}
-.tile[title],th[title]{cursor:help}
-#sumHead{font-weight:700;font-size:1.15rem;line-height:1.4;margin:8px 0 4px}
-#sumList{list-style:none;margin:8px 0 0;padding:0}
-#sumList li{display:flex;gap:10px;padding:8px 10px;margin:6px 0;border-left:4px solid var(--teal);background:#fafcfd;border-radius:0 6px 6px 0}
-#sumList li.up{border-color:var(--orange)}#sumList li.down{border-color:var(--blue)}#sumList li.flat{border-color:var(--mute)}#sumList li.warn{border-color:var(--warnb);background:var(--warn)}
-#sumList .ic{flex:0 0 1.4em;text-align:center}
-@media (max-width:560px){h1{font-size:1.4rem}#map{height:260px}.grow{flex-basis:100%}button{flex:1 1 140px}main{padding:10px 10px 50px}}
-</style></head><body><main>
-<div class="row"><h1>Earth Trend Detective</h1><button id="lang" aria-label="Language">EN</button></div>
-<p class="note" id="sub"></p>
+<link rel="stylesheet" href="style.css">
+</head><body class="view-home">
 
-<section class="card"><h2 id="l1"></h2>
+<!-- ============ views: home (highlights) and detail (2D satellite map) ============ -->
+<div id="homebg" class="only-home" aria-hidden="true"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><div class="stars"></div></div>
+<div id="view2d"><div id="map2d"></div><div class="gstat" id="gstat"></div></div>
+<div class="scan" aria-hidden="true"></div>
+
+<!-- ============ top bar ============ -->
+<header class="top" id="topbar">
+ <div class="row-top">
+  <a class="brand glass" href="#/" id="brandLink" aria-label="Earth Trend Detective">
+   <span class="mark"><svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#67E8F9"/><stop offset="1" stop-color="#3B82F6"/></linearGradient></defs>
+    <circle cx="16" cy="16" r="12.5" fill="none" stroke="url(#lg)" stroke-width="2"/><ellipse cx="16" cy="16" rx="5.5" ry="12.5" fill="none" stroke="url(#lg)" stroke-width="1.4"/><path d="M3.5 16h25M6 9.5h20M6 22.5h20" stroke="url(#lg)" stroke-width="1.2" fill="none"/></svg><i class="live"></i></span>
+   <span class="bt"><b>EARTH TREND DETECTIVE</b><small id="brandSub"></small></span>
+  </a>
+  <div class="modes glass" role="tablist">
+   <button id="nHome" class="mode on" role="tab"></button>
+   <button id="nDetail" class="mode" role="tab"></button>
+  </div>
+  <div class="tools glass">
+   <button id="nBrief" class="tool"></button>
+   <button id="nCycle" class="tool"></button>
+   <button id="nLab" class="tool"></button>
+   <button id="nGloss" class="tool"></button>
+   <button id="lang" aria-label="Language">EN</button>
+  </div>
+ </div>
+ <div class="strip only-home n" id="strip">
+  <span><b id="st1">0</b><i id="st1l"></i></span><span><b id="st2">0</b><i id="st2l"></i></span><span><b id="st3">0</b><i id="st3l"></i></span><span><b id="st4">–</b><i id="st4l"></i></span>
+ </div>
+ <div hidden><p id="hEyebrow"></p><h1 id="hTitle"></h1><p id="sub"></p><div id="gchips"></div><span id="fLabel"></span><span id="fSensor"></span><p id="hVarLbl"></p></div>
+</header>
+
+<!-- ============ HOME: notable trends across the world ============ -->
+<main id="home" class="page only-home">
+ <div class="home-wrap">
+  <section class="stage" aria-label="Map">
+   <canvas id="cv" aria-label="3D globe showing deviations of environmental variables"></canvas>
+   <div class="ctl seg" id="hlTabs" role="tablist"></div>
+   <div class="ttl"><h1 id="hmTitle"></h1><p id="hmSub"></p></div>
+   <div class="pick" id="hmPick"></div>
+   <div class="hm-tr">
+    <label class="heatsw" id="heatSw"><input type="checkbox" id="heatOn" checked><i class="sw"></i><span id="heatLbl"></span></label>
+    <div class="leg" id="hmLeg"></div>
+   </div>
+  </section>
+  <section class="right">
+   <div class="head">
+    <div><h2 id="hlLabel"></h2><p class="sum" id="hlTitle"></p><p class="sub" id="hlSub"></p></div>
+    <div class="hact"><select id="homeCity" aria-label="City"></select><button id="openDetail" class="load"></button></div>
+   </div>
+   <div class="prog" id="hlProg" hidden><i id="hlBar"></i></div>
+   <div id="hlGrid" class="hl-grid"></div>
+   <p class="note" id="hlStatus"></p>
+   <p class="note" id="hlNote"></p>
+  </section>
+ </div>
+ <footer class="foot"><span id="ftSrc"></span><span id="ftMeth"></span></footer>
+</main>
+
+<!-- ============ DETAIL: telemetry of the selected city ============ -->
+<aside class="left only-detail" id="leftHud">
+ <div class="glass pad tele">
+  <div class="lock"><i class="ping"></i><span id="tLock"></span></div>
+  <div class="hctl"><select id="hCity" aria-label="City"></select></div>
+  <div class="hctl"><label for="dVar" id="dVarL" class="vl"></label><select id="dVar"></select></div>
+  <h2 id="hudName">—</h2>
+  <p class="coord" id="hudCoord"></p>
+  <button id="briefBtn" class="cta"></button>
+  <div class="mgrid">
+   <div class="mc"><small id="m1l"></small><div><b id="m1v">–</b> <span id="m1u"></span></div><em id="m1b"></em></div>
+   <div class="mc"><small id="m2l"></small><div><b id="m2v">–</b> <span id="m2u">σ</span></div><em id="m2b"></em></div>
+  </div>
+  <div class="alert" id="hudAlert"></div>
+  <dl class="prof" id="hudProf"></dl>
+ </div>
+</aside>
+
+<!-- ============ DETAIL bottom bar: legend, time-lapse, quick cities ============ -->
+<footer class="bottom only-detail" id="botbar">
+ <div class="glass glegend" id="glegend"></div>
+ <div class="glass ghud">
+  <button class="gbtn go" id="gplay" aria-label="Play">▶</button>
+  <div class="gyear" id="gyear">—</div><div class="gsub" id="gsub"></div>
+  <input type="range" id="gslider" min="0" max="0" value="0" aria-label="Year">
+  <button id="gall"></button>
+ </div>
+ <div class="glass presets" id="presets"></div>
+</footer>
+
+<!-- ============ drawers ============ -->
+<section id="brief" class="drawer" aria-label="Brief">
+ <button class="dclose" data-close aria-label="Close">✕</button>
+ <div class="sec-h"><p class="eyebrow" id="bEyebrow"></p><h2 id="bTitle"></h2><p class="lead" id="bLead"></p></div>
+ <div class="row brief-ctl"><button id="bRun" class="go"></button><button id="bPrint" disabled></button><button id="bCopy" disabled></button><span class="note" id="bPlace"></span></div>
+ <div id="briefEmpty" class="empty"></div>
+ <article id="briefDoc" class="paper" hidden></article>
+</section>
+
+<section id="lab" class="drawer wide" aria-label="Lab">
+ <button class="dclose" data-close aria-label="Close">✕</button>
+ <div class="sec-h"><p class="eyebrow" id="labEyebrow"></p><h2 id="labTitle"></h2><p class="lead" id="labLead"></p></div>
+
+<div class="card"><h2 id="l1"></h2>
  <div class="row"><select id="topic" class="grow" aria-label="Topic"></select><select id="var" class="grow" aria-label="Variable"></select></div>
  <p class="note" id="desc"></p>
  <h2 id="l2"></h2>
@@ -65,42 +121,62 @@ h3{font-size:.98rem;margin:14px 0 4px}
   <label><input type="checkbox" id="des" checked> <span id="ldes"></span></label>
   <label><input type="checkbox" id="ann"> <span id="lann"></span></label></div>
  <div class="row"><button class="demo" id="demo"></button><button class="demo2" id="demo2"></button><button class="go" id="run"></button><button id="grid"></button></div>
- <div id="status" role="status" aria-live="polite"></div><div id="err" role="alert"></div>
-</section>
+</div>
 
-<section class="card" id="sumCard"><h2 id="sumT"></h2>
+<div class="card" id="sumCard"><h2 id="sumT"></h2>
  <div class="row"><button class="go" id="sumRun"></button><button id="sumCopy" disabled></button><span class="note" id="sumNote"></span></div>
  <div id="sumOut" hidden><p id="sumHead"></p><div class="tiles" id="sumChips"></div>
-  <div id="sumChart" class="chart"></div><ul id="sumList"></ul><p class="note" id="sumSrc"></p></div></section>
+  <div id="sumChart" class="chart"></div><ul id="sumList"></ul><p class="note" id="sumSrc"></p></div></div>
 
-<section class="card" id="out" hidden><h2 id="resT"></h2><p class="note" id="srcTitle"></p>
+<div class="card" id="out" hidden><h2 id="resT"></h2><p class="note" id="srcTitle"></p>
  <div id="chart" class="chart"></div><div class="tiles" id="tiles"></div><div id="verdict"></div>
+ <div id="evBox" class="ev-box" hidden></div>
  <div id="quality" hidden><h3 id="qT"></h3><div class="tiles" id="qChips"></div><div id="qChart" class="chart small" hidden></div>
-  <ul id="qNotes"></ul><p class="note" id="qOut"></p></div></section>
+  <ul id="qNotes"></ul><p class="note" id="qOut"></p></div></div>
 
-<section class="card" id="lagCard"><h2 id="lagT"></h2>
+<div class="card" id="lagCard"><h2 id="lagT"></h2>
  <div class="row"><span class="note" id="lagALbl"></span><select id="varB" class="grow" aria-label="Variable B"></select><button class="go" id="lagRun"></button></div>
- <div id="lagOut" hidden><div id="lagChart" class="chart"></div><p id="lagBest"></p><div class="callout warn" id="lagCav"></div></div></section>
+ <div id="lagOut" hidden><div id="lagChart" class="chart"></div><p id="lagBest"></p><div class="callout warn" id="lagCav"></div></div></div>
 
-<section class="card" id="anoCard"><h2 id="anoT"></h2>
+<div class="card" id="anoCard"><h2 id="anoT"></h2>
  <div class="row"><button class="go" id="anoRun"></button><span class="note" id="anoNote"></span></div>
- <div id="anoChart" class="chart" hidden></div></section>
+ <div id="anoChart" class="chart" hidden></div></div>
 
-<section class="card" id="scanCard"><h2 id="scanT"></h2><p class="note" id="scanHelp"></p>
+<div class="card" id="scanCard"><h2 id="scanT"></h2><p class="note" id="scanHelp"></p>
  <div class="row"><button class="go" id="scanRun"></button><span class="note" id="scanNote"></span></div>
  <div id="scanChart" class="chart" hidden></div>
- <div class="tw" id="scanWrap" hidden><table><thead><tr id="scanHead"></tr></thead><tbody id="scanBody"></tbody></table></div></section>
+ <div class="tw" id="scanWrap" hidden><table><thead><tr id="scanHead"></tr></thead><tbody id="scanBody"></tbody></table></div></div>
 
-<section class="card" id="rankCard"><h2 id="rankT"></h2>
+<div class="card" id="rankCard"><h2 id="rankT"></h2>
  <div class="row"><select id="region" aria-label="Region"></select><button class="go" id="rankRun"></button><button id="rankCmp" disabled></button></div>
  <p class="note" id="rankNote"></p><div class="callout" id="oppNote" hidden></div>
  <div class="tw" id="rankWrap" hidden><table><thead><tr id="rankHead"></tr></thead><tbody id="rankBody"></tbody></table></div>
- <div id="cmpChart" class="chart" hidden></div></section>
+ <div id="cmpChart" class="chart" hidden></div></div>
 
-<section class="card" id="upCard"><h2 id="upT"></h2><p class="note" id="upHelp"></p>
- <div class="up" id="drop"><input type="file" id="file" accept=".csv,text/csv,text/plain" aria-label="CSV file"></div>
- <div class="row"><input id="upName" class="grow" aria-label="Name"><input id="upUnit" style="width:110px" aria-label="Unit"><button class="go" id="upRun"></button></div></section>
+<div class="card" id="upCard"><h2 id="upT"></h2><p class="note" id="upHelp"></p>
+ <div class="dropz" id="drop"><input type="file" id="file" accept=".csv,text/csv,text/plain" aria-label="CSV file"></div>
+ <div class="row"><input id="upName" class="grow" aria-label="Name"><input id="upUnit" style="width:110px" aria-label="Unit"><button class="go" id="upRun"></button></div></div>
+ <p class="note" id="foot"></p>
+</section>
 
-<section class="card"><details id="gloss"><summary id="glossT"></summary><dl id="glossList"></dl></details></section>
-<p class="note" id="foot"></p></main>
-<script src="app.js"></script></body></html>
+<section id="glossD" class="drawer" aria-label="Glossary">
+ <button class="dclose" data-close aria-label="Close">✕</button>
+ <div class="card"><details id="gloss" open><summary id="glossT"></summary><dl id="glossList"></dl></details></div>
+</section>
+<section id="cycleD" class="drawer wide" aria-label="Cycles">
+ <button class="dclose" data-close aria-label="Close">✕</button>
+ <div class="sec-h"><p class="eyebrow" id="cyEyebrow"></p><h2 id="cyTitle"></h2><p class="lead" id="cyLead"></p></div>
+ <div class="seg cy-seg" id="cyMode" role="tablist"></div><p class="note" id="cyStatus"></p>
+ <div id="cyBody"></div>
+</section>
+<div class="backdrop" id="backdrop"></div>
+
+<div id="dock"><div id="status" role="status" aria-live="polite"></div><div id="err" role="alert"></div></div>
+
+<script src="app.js"></script>
+<script src="brief.js"></script>
+<script src="hud.js"></script>
+<script src="explore.js"></script>
+<script src="cycle.js"></script>
+<script src="home.js"></script>
+</body></html>

@@ -29,8 +29,16 @@ save("lag", get("/api/lag", city="hcm", a="T2M", b="RH2M"))
 save("anomaly", get("/api/anomaly", city="hcm", var="T2M"))
 save("ranking", get("/api/ranking", var="CLOUD_AMT", region="all"))     # shows opposite trends
 save("scan", get("/api/scan", city="hcm"))
+save("brief", get("/api/brief", city="hcm"))
+save("globe", get("/api/globe", var="CLOUD_AMT"))
 save("summary", get("/api/summary", city="hcm", var="T2M", b="RH2M"))
 save("grid", get("/api/grid", lat=10.78, lon=106.7, var="T2M"))
+save("weekly", get("/api/weekly", city="hcm", var="T2M"))
+hl = get("/api/highlights"); assert hl["finished"], "highlights still computing: wait and rerun"
+save("heatlayers", get("/api/heatlayers"))
+save("cycle", get("/api/cycle", city="hcm", vars="T2M,hcm_aod,hcm_no2", start=2004, end=2025))
+save("correlations", get("/api/correlations"))
+save("highlights", hl)
 
 # upload: synthetic Giovanni-like CSV pushed through the real endpoint
 rng = np.random.default_rng(1); lines = ["# synthetic sample (mock only)", "Time,mean_AOD"]

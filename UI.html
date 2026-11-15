@@ -1,0 +1,1673 @@
+<!DOCTYPE html>
+
+<html lang="vi"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1.0" name="viewport"/>
+<title>NASA 3D Realistic Earth &amp; Atmospheric Explorer</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet"/>
+<!-- Leaflet for 2D View -->
+<link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Three.js for Realistic 3D Globe -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background-color: #01040a;
+    color: #f1f5f9;
+    font-family: 'Inter', sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+  .font-hud { font-family: 'Chakra Petch', sans-serif; }
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* Hologram & Glow effects */
+  .hud-glass {
+    background: rgba(4, 12, 26, 0.82);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(56, 189, 248, 0.22);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.6), inset 0 0 12px rgba(56, 189, 248, 0.08);
+  }
+  .hud-glass-active {
+    background: rgba(8, 24, 48, 0.88);
+    border-color: rgba(0, 242, 254, 0.55);
+    box-shadow: 0 0 25px rgba(0, 242, 254, 0.25);
+  }
+  .hud-border-glow {
+    position: relative;
+  }
+  .hud-border-glow::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, #38bdf8, transparent);
+  }
+
+  /* Scanline effect */
+  .scanline {
+    background: linear-gradient(
+      to bottom,
+      rgba(255,255,255,0),
+      rgba(255,255,255,0) 50%,
+      rgba(0, 242, 254, 0.02) 50%,
+      rgba(0, 242, 254, 0.02)
+    );
+    background-size: 100% 4px;
+  }
+
+  /* Custom Leaflet Dark / Satellite Styling */
+  .leaflet-container {
+    background: #030712 !important;
+    font-family: inherit;
+  }
+  .leaflet-popup-content-wrapper {
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  .leaflet-popup-content {
+    margin: 0 !important;
+    line-height: inherit !important;
+  }
+  .leaflet-popup-tip {
+    background: #0b1728 !important;
+    border: 1px solid rgba(56, 189, 248, 0.4);
+  }
+
+  /* Pulse animation */
+  @keyframes radarPulse {
+    0% { transform: scale(1); opacity: 0.9; }
+    70% { transform: scale(3.2); opacity: 0; }
+    100% { transform: scale(3.5); opacity: 0; }
+  }
+  .pulse-ring {
+    animation: radarPulse 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+  }
+
+  /* Filter pill active states */
+  .filter-pill {
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .filter-pill.active-aqi {
+    background: linear-gradient(135deg, rgba(6, 182, 212, 0.35), rgba(59, 130, 246, 0.35));
+    border-color: rgba(34, 211, 238, 0.8);
+    color: #67e8f9;
+    box-shadow: 0 0 16px rgba(6, 182, 212, 0.35);
+  }
+  .filter-pill.active-pm25 {
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.35), rgba(225, 29, 72, 0.35));
+    border-color: rgba(251, 146, 60, 0.85);
+    color: #fdba74;
+    box-shadow: 0 0 16px rgba(249, 115, 22, 0.4);
+  }
+  .filter-pill.active-no2 {
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.35), rgba(99, 102, 241, 0.35));
+    border-color: rgba(56, 189, 248, 0.85);
+    color: #7dd3fc;
+    box-shadow: 0 0 16px rgba(14, 165, 233, 0.4);
+  }
+  .filter-pill.active-o3 {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.35), rgba(132, 204, 22, 0.35));
+    border-color: rgba(52, 211, 153, 0.85);
+    color: #6ee7b7;
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.4);
+  }
+</style>
+</head>
+<body class="w-screen h-screen relative bg-black overflow-hidden scanline">
+<!-- ================= 3D VIEW CONTAINER (Three.js Realistic Earth with Volumetric Pollution Plumes) ================= -->
+<div class="absolute inset-0 w-full h-full z-0 transition-opacity duration-700 ease-in-out" id="view-3d-wrapper">
+<!-- STITCH_THREEJS_START:ANIMATION_12 class="absolute inset-0 w-full h-full bg-transparent" -->
+<div class="absolute inset-0 w-full h-full bg-transparent" style="display:block;">
+<script src="https://ajax.googleapis.com/ajax/libs/threejs/r125/three.min.js"></script>
+<div id="threejs-container-ANIMATION_12" style="width:100%;height:100%"></div>
+<script>
+(function() {
+  const container = document.getElementById('threejs-container-ANIMATION_12');
+  const devicePixelRatio = window.devicePixelRatio || 1;
+  // Three.js Interactive Realistic Earth Globe with 3D Volumetric Pollution Plumes & Haze
+const containerEl = container || document.getElementById('threejs-container');
+const width = containerEl.clientWidth || window.innerWidth;
+const height = containerEl.clientHeight || window.innerHeight;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1500);
+camera.position.set(0, 0, 245);
+
+const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+renderer.setSize(width, height);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+containerEl.appendChild(renderer.domElement);
+
+// Lighting
+const ambientLight = new THREE.AmbientLight(0x0a192f, 1.4);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+dirLight.position.set(150, 100, 160);
+scene.add(dirLight);
+
+const rimLight = new THREE.PointLight(0x38bdf8, 2.5, 400);
+rimLight.position.set(-180, -60, -100);
+scene.add(rimLight);
+
+const globeGroup = new THREE.Group();
+scene.add(globeGroup);
+
+const GLOBE_RADIUS = 76;
+
+// Function: Convert Lat/Lon to Vector3
+function latLonToVector3(lat, lon, radius) {
+  const phi = (90 - lat) * (Math.PI / 180);
+  const theta = (lon + 180) * (Math.PI / 180);
+  return new THREE.Vector3(
+    -(radius * Math.sin(phi) * Math.cos(theta)),
+    radius * Math.cos(phi),
+    radius * Math.sin(phi) * Math.sin(theta)
+  );
+}
+
+// Procedural Photorealistic Earth Texture using Canvas
+function createEarthCanvasTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 2048;
+  canvas.height = 1024;
+  const ctx = canvas.getContext('2d');
+
+  // Deep Ocean Base
+  const oceanGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  oceanGrad.addColorStop(0, '#020b17');
+  oceanGrad.addColorStop(0.5, '#051933');
+  oceanGrad.addColorStop(1, '#020b17');
+  ctx.fillStyle = oceanGrad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Continental Landmasses Representation
+  ctx.fillStyle = '#1b3b2b'; // Lush vegetative land
+  
+  function drawContinent(cx, cy, rx, ry, col) {
+    ctx.fillStyle = col || '#1d3e2d';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Eurasia & Africa
+  drawContinent(1200, 360, 360, 190, '#1c432d');
+  drawContinent(1360, 390, 240, 160, '#214e36');
+  drawContinent(1100, 520, 160, 220, '#6d5a37'); // Saharan/Arabian arid
+  drawContinent(1140, 680, 130, 200, '#225032'); // Sub-saharan Africa
+  // Indochina & East Asia
+  drawContinent(1520, 420, 170, 130, '#1b5232');
+  drawContinent(1460, 440, 90, 80, '#235e38');
+  // Americas
+  drawContinent(520, 350, 190, 160, '#1c422c');
+  drawContinent(540, 480, 70, 100, '#54462d');
+  drawContinent(640, 680, 140, 240, '#184729'); // South America Amazon
+  // Australia
+  drawContinent(1680, 720, 130, 100, '#664d2d');
+
+  // High latitude ice caps
+  ctx.fillStyle = '#e2e8f0';
+  ctx.fillRect(0, 0, canvas.width, 35);
+  ctx.fillRect(0, canvas.height - 45, canvas.width, 45);
+
+  return new THREE.CanvasTexture(canvas);
+}
+
+// 1. Earth Sphere
+const earthTexture = createEarthCanvasTexture();
+const earthGeo = new THREE.SphereGeometry(GLOBE_RADIUS, 64, 64);
+const earthMat = new THREE.MeshPhongMaterial({
+  map: earthTexture,
+  specular: 0x224466,
+  shininess: 18,
+  bumpScale: 0.05
+});
+const earthMesh = new THREE.Mesh(earthGeo, earthMat);
+globeGroup.add(earthMesh);
+
+// 2. Realistic Dynamic Cloud Layer
+function createCloudTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+  for (let i = 0; i < 400; i++) {
+    const x = Math.random() * canvas.width;
+    const y = 80 + Math.random() * (canvas.height - 160);
+    const r = 10 + Math.random() * 45;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  return new THREE.CanvasTexture(canvas);
+}
+
+const cloudTexture = createCloudTexture();
+const cloudGeo = new THREE.SphereGeometry(GLOBE_RADIUS + 0.8, 64, 64);
+const cloudMat = new THREE.MeshLambertMaterial({
+  map: cloudTexture,
+  transparent: true,
+  opacity: 0.38,
+  blending: THREE.AdditiveBlending
+});
+const cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
+globeGroup.add(cloudMesh);
+
+// 3. Atmospheric Outer Glow (Rayleigh scattering)
+const atmosphereGeo = new THREE.SphereGeometry(GLOBE_RADIUS + 3.2, 64, 64);
+const atmosphereMat = new THREE.ShaderMaterial({
+  vertexShader: `
+    varying vec3 vNormal;
+    void main() {
+      vNormal = normalize(normalMatrix * normal);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vNormal;
+    void main() {
+      float intensity = pow(0.65 - dot(vNormal, vec3(0, 0, 1.0)), 2.2);
+      gl_FragColor = vec4(0.0, 0.85, 1.0, 1.0) * intensity * 0.95;
+    }
+  `,
+  blending: THREE.AdditiveBlending,
+  side: THREE.BackSide,
+  transparent: true
+});
+const atmosphereMesh = new THREE.Mesh(atmosphereGeo, atmosphereMat);
+globeGroup.add(atmosphereMesh);
+
+// 4. City Hotspot Telemetry Data with Pollutant Profiles
+const cities = [
+  { name: "Hà Nội (Hanoi)", country: "Việt Nam", lat: 21.03, lon: 105.85, aqi: 154, pm25: 62.8, no2: 38.4, o3: 42.1, status: "Kém", color: 0xf97316 },
+  { name: "Bangkok", country: "Thái Lan", lat: 13.75, lon: 100.51, aqi: 128, pm25: 46.2, no2: 29.1, o3: 36.4, status: "Trung bình", color: 0xf59e0b },
+  { name: "New Delhi", country: "Ấn Độ", lat: 28.61, lon: 77.20, aqi: 242, pm25: 114.5, no2: 58.7, o3: 65.3, status: "Nguy hại", color: 0xef4444 },
+  { name: "Tokyo", country: "Nhật Bản", lat: 35.68, lon: 139.69, aqi: 42, pm25: 9.8, no2: 14.2, o3: 28.0, status: "Tốt", color: 0x10b981 },
+  { name: "Singapore", country: "Singapore", lat: 1.35, lon: 103.82, aqi: 52, pm25: 13.1, no2: 17.5, o3: 24.6, status: "Trung bình", color: 0x06b6d4 },
+  { name: "London", country: "Vương Quốc Anh", lat: 51.50, lon: -0.12, aqi: 48, pm25: 11.2, no2: 22.8, o3: 31.4, status: "Tốt", color: 0x10b981 },
+  { name: "Paris", country: "Pháp", lat: 48.85, lon: 2.35, aqi: 55, pm25: 13.8, no2: 26.4, o3: 34.2, status: "Trung bình", color: 0x06b6d4 },
+  { name: "Cairo", country: "Ai Cập", lat: 30.04, lon: 31.23, aqi: 168, pm25: 68.3, no2: 44.5, o3: 49.0, status: "Nguy hại", color: 0xf97316 },
+  { name: "New York", country: "Hoa Kỳ", lat: 40.71, lon: -74.00, aqi: 62, pm25: 16.5, no2: 24.1, o3: 33.7, status: "Trung bình", color: 0x38bdf8 },
+  { name: "Los Angeles", country: "Hoa Kỳ", lat: 34.05, lon: -118.24, aqi: 92, pm25: 28.4, no2: 36.2, o3: 54.1, status: "Trung bình", color: 0xf59e0b }
+];
+
+// 5. 3D Volumetric Pollution Plumes & Haze Layer (Đám mây ô nhiễm 3D)
+const plumesGroup = new THREE.Group();
+globeGroup.add(plumesGroup);
+
+let showPollutionPlumes = true; // Controlled by UI toggle
+let activePollutantFilter = 'all'; // 'all', 'pm25', 'no2', 'o3'
+
+const cityObjects = [];
+const cityMeshList = [];
+const plumeObjects = [];
+
+// Helper texture for pollution haze clouds
+function createHazeParticleTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+  grad.addColorStop(0.3, 'rgba(255, 255, 255, 0.5)');
+  grad.addColorStop(0.7, 'rgba(255, 255, 255, 0.15)');
+  grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(canvas);
+}
+const hazeTexture = createHazeParticleTexture();
+
+cities.forEach(city => {
+  const cityGroup = new THREE.Group();
+  const pos = latLonToVector3(city.lat, city.lon, GLOBE_RADIUS);
+  cityGroup.position.copy(pos);
+
+  const normal = pos.clone().normalize();
+  cityGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+
+  // A. Core Pin
+  const coreGeo = new THREE.SphereGeometry(1.6, 16, 16);
+  const coreMat = new THREE.MeshBasicMaterial({ color: city.color });
+  const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+  coreMesh.userData = { city: city, isTarget: true };
+  cityGroup.add(coreMesh);
+  cityMeshList.push(coreMesh);
+
+  // B. Light Beam
+  const beamGeo = new THREE.CylinderGeometry(0.2, 0.6, 14, 8);
+  beamGeo.translate(0, 7, 0);
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: city.color,
+    transparent: true,
+    opacity: 0.75
+  });
+  const beam = new THREE.Mesh(beamGeo, beamMat);
+  cityGroup.add(beam);
+
+  // C. Shockwave Ring
+  const waveRingGeo = new THREE.RingGeometry(1.8, 2.7, 32);
+  const waveRingMat = new THREE.MeshBasicMaterial({
+    color: city.color,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.85
+  });
+  const waveRing = new THREE.Mesh(waveRingGeo, waveRingMat);
+  waveRing.rotation.x = Math.PI / 2;
+  cityGroup.add(waveRing);
+
+  // D. Target Bracket Ring
+  const bracketGeo = new THREE.RingGeometry(3.6, 4.4, 32);
+  const bracketMat = new THREE.MeshBasicMaterial({
+    color: 0x00f2fe,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.5
+  });
+  const bracketRing = new THREE.Mesh(bracketGeo, bracketMat);
+  bracketRing.rotation.x = Math.PI / 2;
+  bracketRing.visible = false;
+  cityGroup.add(bracketRing);
+
+  globeGroup.add(cityGroup);
+
+  // E. 3D Volumetric Pollution Plume / Haze Dome
+  // High-pollution cities (AQI > 100: Hanoi, Delhi, Cairo, Bangkok) get massive dynamic smog domes
+  const severityRatio = Math.min(Math.max((city.aqi - 30) / 180, 0.2), 1.6);
+  const plumeDomeGeo = new THREE.SphereGeometry(3.5 * severityRatio + 2, 24, 24, 0, Math.PI * 2, 0, Math.PI * 0.55);
+  const plumeDomeMat = new THREE.MeshLambertMaterial({
+    color: city.aqi > 150 ? 0xd97706 : (city.aqi > 100 ? 0xb45309 : 0x059669),
+    transparent: true,
+    opacity: 0.35 * severityRatio,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending
+  });
+  const plumeDome = new THREE.Mesh(plumeDomeGeo, plumeDomeMat);
+  plumeDome.position.copy(pos);
+  plumeDome.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+  plumesGroup.add(plumeDome);
+
+  // F. Swirling Smog / Aerosol Particle Clones
+  const plumeParticleCount = Math.floor(45 * severityRatio);
+  const plumePartGeo = new THREE.BufferGeometry();
+  const plumePartPos = new Float32Array(plumeParticleCount * 3);
+  for (let p = 0; p < plumeParticleCount; p++) {
+    const angle = Math.random() * Math.PI * 2;
+    const rDist = Math.random() * (4.5 * severityRatio);
+    const hDist = Math.random() * (6.5 * severityRatio) + 1.2;
+    const offset = new THREE.Vector3(
+      Math.cos(angle) * rDist,
+      hDist,
+      Math.sin(angle) * rDist
+    );
+    offset.applyQuaternion(cityGroup.quaternion);
+    plumePartPos[p * 3] = pos.x + offset.x;
+    plumePartPos[p * 3 + 1] = pos.y + offset.y;
+    plumePartPos[p * 3 + 2] = pos.z + offset.z;
+  }
+  plumePartGeo.setAttribute('position', new THREE.BufferAttribute(plumePartPos, 3));
+  const plumePartMat = new THREE.PointsMaterial({
+    color: city.color,
+    size: 2.8,
+    map: hazeTexture,
+    transparent: true,
+    opacity: 0.65,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  });
+  const plumeParticles = new THREE.Points(plumePartGeo, plumePartMat);
+  plumesGroup.add(plumeParticles);
+
+  cityObjects.push({
+    city,
+    group: cityGroup,
+    core: coreMesh,
+    beam: beam,
+    wave: waveRing,
+    bracket: bracketRing,
+    waveScale: 1
+  });
+
+  plumeObjects.push({
+    city,
+    dome: plumeDome,
+    domeMat: plumeDomeMat,
+    particles: plumeParticles,
+    partMat: plumePartMat,
+    baseColor: city.color,
+    severity: severityRatio
+  });
+});
+
+// Ambient Cosmic Starfield
+const starCount = 350;
+const starGeo = new THREE.BufferGeometry();
+const starPos = new Float32Array(starCount * 3);
+for (let i = 0; i < starCount; i++) {
+  const p = latLonToVector3(
+    (Math.random() - 0.5) * 180,
+    (Math.random() - 0.5) * 360,
+    GLOBE_RADIUS + 15 + Math.random() * 55
+  );
+  starPos[i * 3] = p.x;
+  starPos[i * 3 + 1] = p.y;
+  starPos[i * 3 + 2] = p.z;
+}
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+const starMat = new THREE.PointsMaterial({
+  color: 0x38bdf8,
+  size: 1.4,
+  transparent: true,
+  opacity: 0.5
+});
+const stars = new THREE.Points(starGeo, starMat);
+globeGroup.add(stars);
+
+// Interaction & Raycasting
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2(-999, -999);
+let hoveredTarget = null;
+let isDragging = false;
+let previousMousePosition = { x: 0, y: 0 };
+let autoRotate = true;
+
+// Tooltip DOM Element
+let tooltipEl = document.getElementById('globe-target-tooltip');
+if (!tooltipEl) {
+  tooltipEl = document.createElement('div');
+  tooltipEl.id = 'globe-target-tooltip';
+  tooltipEl.style.position = 'fixed';
+  tooltipEl.style.pointerEvents = 'none';
+  tooltipEl.style.zIndex = '9999';
+  tooltipEl.style.display = 'none';
+  tooltipEl.style.padding = '10px 14px';
+  tooltipEl.style.background = 'rgba(7, 16, 34, 0.95)';
+  tooltipEl.style.border = '1px solid #00f2fe';
+  tooltipEl.style.borderRadius = '8px';
+  tooltipEl.style.boxShadow = '0 0 25px rgba(0, 242, 254, 0.4)';
+  tooltipEl.style.color = '#fff';
+  tooltipEl.style.fontFamily = 'monospace, sans-serif';
+  tooltipEl.style.fontSize = '12px';
+  tooltipEl.style.backdropFilter = 'blur(8px)';
+  tooltipEl.style.transform = 'translate(-50%, -120%)';
+  document.body.appendChild(tooltipEl);
+}
+
+function onMouseMove(event) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+  if (isDragging) {
+    const deltaX = event.clientX - previousMousePosition.x;
+    const deltaY = event.clientY - previousMousePosition.y;
+    globeGroup.rotation.y += deltaX * 0.005;
+    globeGroup.rotation.x += deltaY * 0.005;
+    autoRotate = false;
+  }
+  previousMousePosition = { x: event.clientX, y: event.clientY };
+
+  tooltipEl.style.left = `${event.clientX}px`;
+  tooltipEl.style.top = `${event.clientY}px`;
+}
+
+function onMouseDown(e) {
+  isDragging = true;
+  previousMousePosition = { x: e.clientX, y: e.clientY };
+}
+
+function onMouseUp() {
+  isDragging = false;
+  setTimeout(() => { autoRotate = true; }, 3000);
+}
+
+renderer.domElement.addEventListener('mousemove', onMouseMove);
+renderer.domElement.addEventListener('mousedown', onMouseDown);
+window.addEventListener('mouseup', onMouseUp);
+
+// Set default initial view to Asia/Vietnam
+globeGroup.rotation.y = -1.95;
+globeGroup.rotation.x = 0.28;
+
+// Window Resize
+window.addEventListener('resize', () => {
+  const w = containerEl.clientWidth || window.innerWidth;
+  const h = containerEl.clientHeight || window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+});
+
+// Window Listeners for outside Dashboard UI controls
+window.addEventListener('nasa-filter-pollutant', (e) => {
+  activePollutantFilter = e.detail || 'all';
+  updatePollutantVisuals();
+});
+
+window.addEventListener('nasa-toggle-plumes', (e) => {
+  showPollutionPlumes = e.detail !== undefined ? e.detail : !showPollutionPlumes;
+  plumesGroup.visible = showPollutionPlumes;
+});
+
+function updatePollutantVisuals() {
+  plumeObjects.forEach(p => {
+    let color = p.baseColor;
+    let opacity = 0.35 * p.severity;
+    
+    if (activePollutantFilter === 'pm25') {
+      color = p.city.pm25 > 55 ? 0xef4444 : (p.city.pm25 > 35 ? 0xf97316 : 0x10b981);
+    } else if (activePollutantFilter === 'no2') {
+      color = p.city.no2 > 50 ? 0xef4444 : (p.city.no2 > 30 ? 0x06b6d4 : 0x10b981);
+    } else if (activePollutantFilter === 'o3') {
+      color = p.city.o3 > 60 ? 0xef4444 : (p.city.o3 > 40 ? 0xa855f7 : 0x10b981);
+    }
+    
+    p.domeMat.color.setHex(color);
+    p.partMat.color.setHex(color);
+  });
+}
+
+// Render Loop
+let clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const elapsedTime = clock.getElapsedTime();
+
+  if (autoRotate) {
+    globeGroup.rotation.y += 0.0018;
+    cloudMesh.rotation.y += 0.0024;
+  }
+
+  // Plume breathing & particle turbulence
+  if (showPollutionPlumes) {
+    plumesGroup.children.forEach((child, idx) => {
+      if (child.isPoints) {
+        child.rotation.y = Math.sin(elapsedTime * 0.4 + idx) * 0.02;
+      } else if (child.isMesh) {
+        const pulse = 1 + 0.08 * Math.sin(elapsedTime * 2.5 + idx);
+        child.scale.set(pulse, pulse, pulse);
+      }
+    });
+  }
+
+  // Raycasting
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(cityMeshList, false);
+
+  if (intersects.length > 0) {
+    const hitCity = intersects[0].object.userData.city;
+    if (hoveredTarget !== hitCity) {
+      hoveredTarget = hitCity;
+      document.body.style.cursor = 'pointer';
+      
+      tooltipEl.style.display = 'block';
+      tooltipEl.innerHTML = `
+        <div style="font-weight: 700; color: #38bdf8; font-size: 13px; margin-bottom: 2px;">
+          ĐIỂM NÓNG: ${hitCity.name.toUpperCase()}
+        </div>
+        <div style="color: #94a3b8; font-size: 11px;">${hitCity.country} [${hitCity.lat}°N, ${hitCity.lon}°E]</div>
+        <div style="margin-top: 6px; display: flex; flex-direction: column; gap: 3px;">
+          <div style="display:flex; justify-content:space-between; gap:12px;">
+            <span style="color:#f97316;">AQI Tổng hợp:</span> <b>${hitCity.aqi} (${hitCity.status})</b>
+          </div>
+          <div style="display:flex; justify-content:space-between; gap:12px;">
+            <span style="color:#fbbf24;">Bụi PM2.5:</span> <b>${hitCity.pm25} µg/m³</b>
+          </div>
+          <div style="display:flex; justify-content:space-between; gap:12px;">
+            <span style="color:#38bdf8;">Khí NO₂:</span> <b>${hitCity.no2} ppb</b>
+          </div>
+          <div style="display:flex; justify-content:space-between; gap:12px;">
+            <span style="color:#a855f7;">Ozone O₃:</span> <b>${hitCity.o3} ppb</b>
+          </div>
+          <div style="margin-top:4px; font-size:10px; color:#34d399; border-top:1px solid rgba(255,255,255,0.1); padding-top:2px;">
+            Đám mây sol khí 3D: Đang kích hoạt
+          </div>
+        </div>
+      `;
+
+      window.dispatchEvent(new CustomEvent('globe-target-selected', { detail: hitCity }));
+    }
+  } else {
+    if (hoveredTarget) {
+      hoveredTarget = null;
+      document.body.style.cursor = 'default';
+      tooltipEl.style.display = 'none';
+    }
+  }
+
+  // Animate City Beacons
+  cityObjects.forEach(obj => {
+    const isTarget = hoveredTarget && hoveredTarget.name === obj.city.name;
+    if (isTarget) {
+      obj.bracket.visible = true;
+      obj.bracket.rotation.z += 0.03;
+      obj.waveScale += 0.05;
+      if (obj.waveScale > 4.5) obj.waveScale = 1;
+      obj.wave.scale.set(obj.waveScale, obj.waveScale, 1);
+      obj.wave.material.opacity = Math.max(0, 1 - (obj.waveScale / 4.5));
+    } else {
+      obj.bracket.visible = false;
+      const ambientScale = 1 + 0.3 * Math.sin(elapsedTime * 3 + obj.city.lat);
+      obj.wave.scale.set(ambientScale, ambientScale, 1);
+      obj.wave.material.opacity = 0.45;
+    }
+  });
+
+  renderer.render(scene, camera);
+}
+
+animate();
+
+})();
+</script>
+</div>
+<!-- STITCH_THREEJS_END:ANIMATION_12 -->
+</div>
+<!-- ================= 2D VIEW CONTAINER (Leaflet Satellite & Atmospheric Map) ================= -->
+<div class="absolute inset-0 w-full h-full z-0 opacity-0 pointer-events-none transition-opacity duration-700 ease-in-out" id="view-2d-wrapper">
+<div class="w-full h-full" id="leaflet-map"></div>
+</div>
+<!-- ================= TOP HUD CONTROL BAR ================= -->
+<header class="absolute top-0 left-0 right-0 z-30 p-4 pointer-events-none flex flex-col gap-3">
+<div class="max-w-[1780px] w-full mx-auto flex items-center justify-between gap-4 pointer-events-auto">
+<!-- Brand & Mission Header -->
+<div class="hud-glass rounded-2xl px-5 py-3 flex items-center gap-4">
+<div class="relative w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 via-blue-600 to-indigo-700 p-[2px] flex items-center justify-center shadow-lg shadow-cyan-500/20">
+<div class="w-full h-full bg-[#050e1d] rounded-[10px] flex items-center justify-center">
+<i class="fa-solid fa-earth-americas text-cyan-400 text-lg"></i>
+</div>
+<span class="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+</span>
+</div>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-hud font-bold tracking-widest text-white text-base md:text-lg">NASA EARTH REALITY 3D</span>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-700/50">ORBITAL SATELLITE HUD</span>
+</div>
+<p class="text-xs text-slate-400 flex items-center gap-2">
+<span>Hệ thống Giám sát Khí quyển &amp; Chất lượng Không khí Toàn cầu</span>
+<span class="inline-block w-1 h-1 rounded-full bg-slate-600"></span>
+<span class="text-emerald-400 font-mono text-[11px]"><i class="fa-solid fa-satellite mr-1"></i>EOS Terra/Aqua LIVE</span>
+</p>
+</div>
+</div>
+<!-- Center: 3D Realistic Globe vs 2D Satellite Switcher -->
+<div class="hud-glass rounded-2xl p-1.5 flex items-center gap-1">
+<button class="px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all duration-300 bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-500/30" id="btn-mode-3d">
+<i class="fa-solid fa-globe"></i>
+<span>Địa cầu 3D Chân thực</span>
+</button>
+<button class="px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all duration-300 text-slate-400 hover:text-white hover:bg-slate-800/60" id="btn-mode-2d">
+<i class="fa-solid fa-map"></i>
+<span>Bản đồ Vệ tinh 2D</span>
+</button>
+</div>
+<!-- Right HUD Controls: Quick Actions -->
+<div class="hud-glass rounded-2xl px-4 py-2.5 flex items-center gap-3">
+<!-- Target Selector quick dropdown -->
+<div class="flex items-center gap-2 text-xs font-mono">
+<span class="text-slate-400"><i class="fa-solid fa-crosshairs text-cyan-400 mr-1"></i>Tọa độ:</span>
+<select class="bg-black/60 text-cyan-300 border border-cyan-800/60 rounded-lg px-2.5 py-1 text-xs focus:ring-1 focus:ring-cyan-400 outline-none" id="select-city-target">
+<option value="hanoi">Hà Nội (Việt Nam)</option>
+<option value="bangkok">Bangkok (Thái Lan)</option>
+<option value="delhi">New Delhi (Ấn Độ)</option>
+<option value="tokyo">Tokyo (Nhật Bản)</option>
+<option value="london">London (Vương quốc Anh)</option>
+<option value="ny">New York (Hoa Kỳ)</option>
+<option value="sydney">Sydney (Úc)</option>
+<option value="cairo">Cairo (Ai Cập)</option>
+</select>
+</div>
+<div class="h-5 w-[1px] bg-slate-700"></div>
+<!-- 3D Realism details toggles (Clouds, Pollution Plumes, Rotation) -->
+<div class="flex items-center gap-2" id="realistic-3d-toggles">
+<button class="px-2.5 py-1 rounded-lg text-[11px] font-mono border border-cyan-600/50 bg-cyan-950/60 text-cyan-300 flex items-center gap-1.5 hover:bg-cyan-900/40" id="toggle-clouds" title="Bật/Tắt lớp Mây Khí quyển Chuyển động">
+<i class="fa-solid fa-cloud text-xs"></i> Lớp Mây
+</button>
+<button class="px-2.5 py-1 rounded-lg text-[11px] font-mono border border-amber-500/50 bg-amber-950/50 text-amber-300 flex items-center gap-1.5 hover:bg-amber-900/40 transition-all shadow-sm shadow-amber-500/20" id="toggle-plumes" title="Bật/Tắt Đám mây Sol khí &amp; Sương mù Ô nhiễm 3D (Volumetric Plumes)">
+<i class="fa-solid fa-smog text-xs text-amber-400"></i> Mây ô nhiễm 3D
+</button>
+<button class="px-2.5 py-1 rounded-lg text-[11px] font-mono border border-cyan-600/50 bg-cyan-950/60 text-cyan-300 flex items-center gap-1.5 hover:bg-cyan-900/40" id="toggle-rotation" title="Bật/Tắt Tự động Xoay Trái Đất">
+<i class="fa-solid fa-rotate text-xs"></i> Tự Xoay
+</button>
+</div>
+<button class="px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center gap-1.5 transition-all" id="btn-toggle-drawer">
+<i class="fa-solid fa-chart-line"></i>
+<span>Chi tiết Chuyên sâu</span>
+</button>
+</div>
+</div>
+<!-- ================= DEDICATED POLLUTANT FILTER BAR WITH HAZE SIMULATION BADGE ================= -->
+<div class="max-w-[1780px] w-full mx-auto flex flex-col items-center gap-1.5 pointer-events-auto">
+<div class="hud-glass rounded-2xl px-3 py-1.5 flex items-center gap-2 shadow-2xl border border-cyan-500/30 backdrop-blur-xl">
+<div class="flex items-center gap-2 pl-2 pr-3 border-r border-slate-800 text-[11px] font-mono text-slate-400">
+<i class="fa-solid fa-filter text-cyan-400"></i>
+<span class="uppercase tracking-wider font-semibold text-slate-300">Lọc Ô Nhiễm:</span>
+</div>
+<!-- Filter Buttons Segmented Group -->
+<div class="flex items-center gap-1.5">
+<!-- 1. All AQI -->
+<button class="filter-pill active-aqi px-3.5 py-1.5 rounded-xl text-xs font-mono font-medium flex items-center gap-2 border border-transparent hover:border-cyan-500/50" id="btn-pollutant-aqi" onclick="setPollutantFilter('aqi')">
+<i class="fa-solid fa-layer-group text-xs"></i>
+<span>Tất cả (AQI)</span>
+<span class="text-[10px] px-1.5 py-0.2 rounded bg-black/40 text-cyan-300 border border-cyan-500/30">Tổng hợp</span>
+</button>
+<!-- 2. PM2.5 -->
+<button class="filter-pill px-3.5 py-1.5 rounded-xl text-xs font-mono font-medium flex items-center gap-2 text-slate-400 border border-transparent hover:text-white hover:bg-slate-800/60" id="btn-pollutant-pm25" onclick="setPollutantFilter('pm25')">
+<span class="w-2 h-2 rounded-full bg-orange-400"></span>
+<span>Bụi mịn PM2.5</span>
+<span class="text-[10px] px-1.5 py-0.2 rounded bg-black/40 text-orange-300 border border-orange-500/30">µg/m³</span>
+</button>
+<!-- 3. NO2 -->
+<button class="filter-pill px-3.5 py-1.5 rounded-xl text-xs font-mono font-medium flex items-center gap-2 text-slate-400 border border-transparent hover:text-white hover:bg-slate-800/60" id="btn-pollutant-no2" onclick="setPollutantFilter('no2')">
+<span class="w-2 h-2 rounded-full bg-sky-400"></span>
+<span>Khí thải NO₂</span>
+<span class="text-[10px] px-1.5 py-0.2 rounded bg-black/40 text-sky-300 border border-sky-500/30">ppb</span>
+</button>
+<!-- 4. O3 -->
+<button class="filter-pill px-3.5 py-1.5 rounded-xl text-xs font-mono font-medium flex items-center gap-2 text-slate-400 border border-transparent hover:text-white hover:bg-slate-800/60" id="btn-pollutant-o3" onclick="setPollutantFilter('o3')">
+<span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+<span>Ozone tầng đối lưu O₃</span>
+<span class="text-[10px] px-1.5 py-0.2 rounded bg-black/40 text-emerald-300 border border-emerald-500/30">ppb</span>
+</button>
+</div>
+<!-- Sensor Status Indicator -->
+<div class="hidden lg:flex items-center gap-2 pl-3 border-l border-slate-800 text-[10px] font-mono text-slate-400">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+<span class="text-cyan-300" id="active-sensor-name">NASA EOS / MODIS + OMI COMPOSITE</span>
+</div>
+</div>
+<!-- Volumetric Plumes Simulation Badge / Indicator Note -->
+<div class="flex items-center gap-2 px-3 py-1 rounded-full bg-black/60 border border-cyan-500/30 text-[10px] font-mono text-cyan-200/90 backdrop-blur-md shadow-lg">
+<i class="fa-solid fa-smog text-amber-400 animate-pulse"></i>
+<span>Mô phỏng Đám mây Sol khí &amp; Sương mù Ô nhiễm (Volumetric Pollution Plume / Haze) bao phủ các điểm nóng đô thị</span>
+<span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping ml-1"></span>
+</div>
+</div>
+</header>
+<!-- ================= LEFT HUD: ACTIVE TARGET TELEMETRY ================= -->
+<aside class="absolute left-6 top-36 z-20 w-88 max-w-[350px] pointer-events-none">
+<div class="hud-glass rounded-2xl p-5 pointer-events-auto space-y-4 shadow-2xl hud-border-glow">
+<!-- Target Location Card Header -->
+<div class="flex items-start justify-between">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+<span class="text-[10px] font-mono text-cyan-300 tracking-wider uppercase">VÙNG KHÓA VỆ TINH</span>
+</div>
+<h2 class="font-hud text-2xl font-bold text-white tracking-wide" id="hud-city-name">Hà Nội (Hanoi)</h2>
+<p class="text-xs text-slate-400 font-mono mt-0.5" id="hud-city-coord">21.03°N | 105.85°E • Việt Nam</p>
+</div>
+<div class="p-2 rounded-xl bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 text-center">
+<i class="fa-solid fa-satellite-dish text-base"></i>
+</div>
+</div>
+<!-- Quick Metrics Grid -->
+<div class="grid grid-cols-2 gap-3" id="hud-metrics-container">
+<!-- Metric 1: Selected Pollutant / AQI Primary -->
+<div class="bg-black/50 p-3 rounded-xl border border-slate-800" id="hud-metric-card-1">
+<div class="text-[10px] text-slate-400 uppercase font-mono" id="hud-metric-label-1">Chỉ số AQI</div>
+<div class="flex items-baseline gap-2 mt-1">
+<span class="font-hud text-2xl font-bold text-amber-400" id="hud-metric-val-1">154</span>
+<span class="text-xs text-slate-400 font-mono hidden" id="hud-metric-unit-1"></span>
+<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30" id="hud-metric-badge-1">Kém</span>
+</div>
+<p class="text-[10px] text-slate-500 mt-1" id="hud-metric-sub-1">Bụi mịn &amp; sol khí</p>
+</div>
+<!-- Metric 2: Secondary / Threshold Comparison -->
+<div class="bg-black/50 p-3 rounded-xl border border-slate-800" id="hud-metric-card-2">
+<div class="text-[10px] text-slate-400 uppercase font-mono" id="hud-metric-label-2">Nồng độ PM2.5</div>
+<div class="flex items-baseline gap-1 mt-1">
+<span class="font-hud text-2xl font-bold text-cyan-300" id="hud-metric-val-2">62.8</span>
+<span class="text-xs text-slate-400 font-mono" id="hud-metric-unit-2">µg/m³</span>
+</div>
+<p class="text-[10px] text-rose-400 mt-1" id="hud-metric-sub-2">Vượt 4.2x WHO</p>
+</div>
+</div>
+<!-- Specific Pollutant Health Alert Banner -->
+<div class="p-2.5 rounded-xl bg-orange-950/30 border border-orange-500/30 flex items-center gap-2.5 font-mono text-[11px] text-orange-200" id="hud-pollutant-alert">
+<i class="fa-solid fa-triangle-exclamation text-orange-400 text-sm"></i>
+<div id="hud-pollutant-alert-text">Khuyến cáo: Nhóm nhạy cảm hạn chế vận động ngoài trời.</div>
+</div>
+<!-- Atmospheric Profile Sensor Breakdown -->
+<div class="bg-black/40 rounded-xl p-3 border border-slate-800/80 space-y-2.5 text-xs font-mono">
+<div class="text-[11px] font-semibold text-cyan-300 flex items-center justify-between">
+<span><i class="fa-solid fa-smog mr-1.5 text-cyan-400"></i>HỒ SƠ KHÍ QUYỂN THỰC THỜI</span>
+<span class="text-[9px] text-emerald-400 px-1.5 py-0.2 rounded bg-emerald-950/60 border border-emerald-800">ONLINE</span>
+</div>
+<div class="space-y-1.5 text-[11px]">
+<div class="flex justify-between items-center text-slate-300" id="row-pm25">
+<span class="text-slate-400">Bụi PM2.5 (MODIS/Aerosol):</span>
+<span class="text-white font-medium" id="hud-pm25-row">62.8 µg/m³</span>
+</div>
+<div class="flex justify-between items-center text-slate-300" id="row-no2">
+<span class="text-slate-400">Khí NO₂ (TROPOMI Column):</span>
+<span class="text-white font-medium" id="hud-no2">38.4 ppb (Vừa phải)</span>
+</div>
+<div class="flex justify-between items-center text-slate-300" id="row-o3">
+<span class="text-slate-400">Khí O₃ tầng đối lưu (OMI):</span>
+<span class="text-white font-medium" id="hud-o3">42.1 ppb</span>
+</div>
+<div class="flex justify-between items-center text-slate-300">
+<span class="text-slate-400">Áp suất khí quyển:</span>
+<span class="text-white font-medium" id="hud-pressure">1012.8 hPa</span>
+</div>
+<div class="flex justify-between items-center text-slate-300">
+<span class="text-slate-400">Độ che phủ mây:</span>
+<span class="text-cyan-300 font-medium" id="hud-cloud-cover">68% (Nhiều mây)</span>
+</div>
+<div class="flex justify-between items-center text-slate-300">
+<span class="text-slate-400">Xu hướng nhiệt độ bề mặt:</span>
+<span class="text-rose-400 font-semibold" id="hud-temp-trend">+0.064°C / năm</span>
+</div>
+</div>
+</div>
+<!-- Quick interactive tip -->
+<div class="flex items-center gap-2 text-[10px] text-slate-400 font-mono bg-cyan-950/20 p-2.5 rounded-xl border border-cyan-900/30">
+<i class="fa-solid fa-circle-info text-cyan-400"></i>
+<span>Chọn các tab trên thanh lọc để đổi đám mây sol khí và cột quang phổ ô nhiễm 3D tương ứng.</span>
+</div>
+</div>
+</aside>
+<!-- ================= BOTTOM BAR: PRESETS & MAP LEGEND ================= -->
+<footer class="absolute bottom-6 left-6 right-6 z-20 pointer-events-none">
+<div class="flex items-center justify-between gap-4">
+<!-- Dynamic Legend for Selected Pollutant Levels -->
+<div class="hud-glass rounded-2xl px-4 py-2.5 pointer-events-auto flex items-center gap-5 text-xs font-mono shadow-xl" id="hud-legend-container">
+<span class="text-slate-400 flex items-center gap-1.5" id="legend-title">
+<i class="fa-solid fa-chart-simple text-cyan-400"></i>
+<span id="legend-label">Mức độ Ô nhiễm Không khí:</span>
+</span>
+<div class="flex items-center gap-4" id="legend-items">
+<span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50"></span> <span id="leg-1">Tốt (0-50)</span></span>
+<span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-400/50"></span> <span id="leg-2">Trung bình (51-100)</span></span>
+<span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-orange-500 shadow-sm shadow-orange-500/50"></span> <span id="leg-3">Kém (101-150)</span></span>
+<span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50"></span> <span id="leg-4">Nguy hại (&gt;150)</span></span>
+</div>
+</div>
+<!-- Preset Quick Target Buttons -->
+<div class="hud-glass rounded-2xl p-1.5 pointer-events-auto flex items-center gap-1.5 text-xs font-mono shadow-xl">
+<span class="text-slate-400 px-2.5 text-[11px]"><i class="fa-solid fa-location-dot text-cyan-400 mr-1"></i>Điểm nóng:</span>
+<button class="preset-btn active px-3 py-1.5 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-400/30 hover:bg-cyan-500/30 transition-all font-medium" onclick="selectCity('hanoi')">Hà Nội</button>
+<button class="preset-btn px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all" onclick="selectCity('bangkok')">Bangkok</button>
+<button class="preset-btn px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all" onclick="selectCity('delhi')">New Delhi</button>
+<button class="preset-btn px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all" onclick="selectCity('tokyo')">Tokyo</button>
+<button class="preset-btn px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all" onclick="selectCity('london')">London</button>
+<button class="preset-btn px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all" onclick="selectCity('ny')">New York</button>
+</div>
+</div>
+</footer>
+<!-- ================= COLLAPSIBLE SCIENTIFIC DETAILS DRAWER ================= -->
+<div class="fixed top-0 right-0 bottom-0 w-96 max-w-[90vw] z-40 bg-[#050c18]/95 backdrop-blur-2xl border-l border-cyan-500/30 transform translate-x-full transition-transform duration-500 ease-in-out shadow-2xl flex flex-col p-6 overflow-y-auto" id="scientific-drawer">
+<div class="flex items-center justify-between pb-4 border-b border-cyan-500/20 mb-6">
+<div class="flex items-center gap-2">
+<i class="fa-solid fa-flask-vial text-cyan-400 text-lg"></i>
+<h3 class="font-hud text-lg font-bold text-white tracking-wider">PHÂN TÍCH KHÍ QUYỂN NASA</h3>
+</div>
+<button class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition-all" id="btn-close-drawer">
+<i class="fa-solid fa-xmark"></i>
+</button>
+</div>
+<!-- Drawer Contents: Variable Trend & NASA Details -->
+<div class="space-y-6 text-xs">
+<div>
+<label class="block text-slate-400 font-mono mb-2 uppercase text-[10px]">Chỉ số quan trắc vệ tinh</label>
+<select class="w-full bg-black/60 border border-slate-700 rounded-xl px-3 py-2 text-cyan-300 font-mono focus:border-cyan-400 outline-none" id="drawer-pollutant-select" onchange="setPollutantFilter(this.value)">
+<option value="pm25">PM2.5 - Hạt bụi mịn lơ lửng (MODIS)</option>
+<option value="no2">NO₂ - Nitrogen Dioxide khí thải giao thông</option>
+<option value="o3">O₃ - Ozone tầng đối lưu mặt đất</option>
+<option value="aqi">AQI - Chỉ số chất lượng không khí tổng hợp</option>
+</select>
+</div>
+<!-- Trend Card -->
+<div class="bg-black/50 p-4 rounded-xl border border-cyan-500/20 space-y-3 font-mono">
+<div class="text-[11px] text-cyan-400 font-semibold flex items-center justify-between">
+<span>KẾT QUẢ HỒI QUY TUYẾN TÍNH</span>
+<span class="text-rose-400 font-bold">p &lt; 0.05</span>
+</div>
+<p class="text-slate-300 leading-relaxed text-[11px]">
+          Xu hướng tăng dài hạn có ý nghĩa thống kê được ghi nhận từ dữ liệu NASA POWER và vệ tinh MODIS trong giai đoạn 2000 - 2024.
+        </p>
+<div class="pt-2 border-t border-slate-800 grid grid-cols-2 gap-2 text-[10px]">
+<div>Tốc độ trôi: <b class="text-white">+0.064/năm</b></div>
+<div>Độ tin cậy: <b class="text-emerald-400">95% CI</b></div>
+<div>Hệ số AR(1): <b class="text-white">0.44</b></div>
+<div>Mann-Kendall: <b class="text-white">τ = 0.181</b></div>
+</div>
+</div>
+<!-- 2030 Simulation Prediction -->
+<div class="bg-cyan-950/30 p-4 rounded-xl border border-cyan-800/40 space-y-2">
+<div class="font-hud font-bold text-cyan-300 text-sm">DỰ PHÓNG MÔ PHỎNG 2030</div>
+<p class="text-slate-300 text-[11px] leading-relaxed">
+          Nếu tốc độ phát thải và nhiệt độ tiếp tục duy trì đà tăng hiện thời, số ngày ô nhiễm vượt ngưỡng khuyến nghị WHO tại khu vực đô thị có thể tăng thêm 18 - 24 ngày mỗi năm.
+        </p>
+</div>
+<div class="mt-auto pt-4 border-t border-slate-800 text-[10px] text-slate-500 font-mono text-center">
+        Dữ liệu đối soát: NASA POWER Climatology &amp; Satellite Assimilation System.
+      </div>
+</div>
+</div>
+<!-- ================= JAVASCRIPT LOGIC ================= -->
+<script>
+    // ----------------- CITIES DATASET WITH POLLUTANT VALUES -----------------
+    const CITIES_DATA = {
+      hanoi: {
+        id: 'hanoi',
+        name: 'Hà Nội (Hanoi)',
+        country: 'Việt Nam',
+        lat: 21.0285,
+        lon: 105.8542,
+        aqi: 154,
+        aqiStatus: 'Kém',
+        aqiColor: '#f97316',
+        pm25: 62.8,
+        no2Val: 38.4,
+        no2: '38.4 ppb (Vừa phải)',
+        o3Val: 42.1,
+        o3: '42.1 ppb (Trung bình)',
+        temp: '28.4°C',
+        pressure: '1012.8 hPa',
+        wind: '12 km/h Đông Bắc',
+        humidity: '74%',
+        cloudCover: '68% (Nhiều mây)',
+        aod: '0.68 (Dày đặc)',
+        trend: '+0.064°C / năm'
+      },
+      bangkok: {
+        id: 'bangkok',
+        name: 'Bangkok',
+        country: 'Thái Lan',
+        lat: 13.7563,
+        lon: 100.5018,
+        aqi: 128,
+        aqiStatus: 'Trung bình kém',
+        aqiColor: '#f59e0b',
+        pm25: 45.2,
+        no2Val: 31.2,
+        no2: '31.2 ppb (Vừa phải)',
+        o3Val: 38.6,
+        o3: '38.6 ppb (Trung bình)',
+        temp: '32.1°C',
+        pressure: '1009.4 hPa',
+        wind: '8 km/h Nam',
+        humidity: '68%',
+        cloudCover: '42% (Mây rải rác)',
+        aod: '0.52 (Trung bình)',
+        trend: '+0.048°C / năm'
+      },
+      delhi: {
+        id: 'delhi',
+        name: 'New Delhi',
+        country: 'Ấn Độ',
+        lat: 28.6139,
+        lon: 77.2090,
+        aqi: 242,
+        aqiStatus: 'Nguy hại (Rất xấu)',
+        aqiColor: '#ef4444',
+        pm25: 118.5,
+        no2Val: 58.7,
+        no2: '58.7 ppb (Cao)',
+        o3Val: 64.2,
+        o3: '64.2 ppb (Kém)',
+        temp: '34.2°C',
+        pressure: '1006.1 hPa',
+        wind: '6 km/h Tây',
+        humidity: '48%',
+        cloudCover: '25% (Mù quang hóa)',
+        aod: '1.24 (Rất cao)',
+        trend: '+0.092°C / năm'
+      },
+      tokyo: {
+        id: 'tokyo',
+        name: 'Tokyo',
+        country: 'Nhật Bản',
+        lat: 35.6762,
+        lon: 139.6503,
+        aqi: 42,
+        aqiStatus: 'Tốt (Trong lành)',
+        aqiColor: '#10b981',
+        pm25: 12.4,
+        no2Val: 15.2,
+        no2: '15.2 ppb (Thấp)',
+        o3Val: 29.4,
+        o3: '29.4 ppb (Tốt)',
+        temp: '19.6°C',
+        pressure: '1016.2 hPa',
+        wind: '18 km/h Đông',
+        humidity: '55%',
+        cloudCover: '35% (Ít mây)',
+        aod: '0.18 (Quang đãng)',
+        trend: '+0.021°C / năm'
+      },
+      london: {
+        id: 'london',
+        name: 'London',
+        country: 'Vương quốc Anh',
+        lat: 51.5074,
+        lon: -0.1278,
+        aqi: 48,
+        aqiStatus: 'Tốt',
+        aqiColor: '#10b981',
+        pm25: 14.8,
+        no2Val: 28.6,
+        no2: '28.6 ppb (Vừa phải)',
+        o3Val: 26.8,
+        o3: '26.8 ppb (Tốt)',
+        temp: '14.8°C',
+        pressure: '1018.5 hPa',
+        wind: '22 km/h Tây Nam',
+        humidity: '82%',
+        cloudCover: '85% (Âm u)',
+        aod: '0.15 (Trong lành)',
+        trend: '+0.028°C / năm'
+      },
+      ny: {
+        id: 'ny',
+        name: 'New York',
+        country: 'Hoa Kỳ',
+        lat: 40.7128,
+        lon: -74.0060,
+        aqi: 62,
+        aqiStatus: 'Trung bình',
+        aqiColor: '#38bdf8',
+        pm25: 18.2,
+        no2Val: 31.0,
+        no2: '31.0 ppb (Vừa phải)',
+        o3Val: 33.2,
+        o3: '33.2 ppb (Trung bình)',
+        temp: '17.2°C',
+        pressure: '1014.0 hPa',
+        wind: '15 km/h Tây Bắc',
+        humidity: '60%',
+        cloudCover: '40% (Quang đãng)',
+        aod: '0.22 (Tốt)',
+        trend: '+0.033°C / năm'
+      },
+      sydney: {
+        id: 'sydney',
+        name: 'Sydney',
+        country: 'Úc',
+        lat: -33.8688,
+        lon: 151.2093,
+        aqi: 35,
+        aqiStatus: 'Tốt (Rất trong lành)',
+        aqiColor: '#10b981',
+        pm25: 8.4,
+        no2Val: 12.1,
+        no2: '12.1 ppb (Rất thấp)',
+        o3Val: 24.0,
+        o3: '24.0 ppb (Tốt)',
+        temp: '22.5°C',
+        pressure: '1020.1 hPa',
+        wind: '20 km/h Nam',
+        humidity: '58%',
+        cloudCover: '20% (Nắng nhẹ)',
+        aod: '0.11 (Tuyệt hảo)',
+        trend: '+0.019°C / năm'
+      },
+      cairo: {
+        id: 'cairo',
+        name: 'Cairo',
+        country: 'Ai Cập',
+        lat: 30.0444,
+        lon: 31.2357,
+        aqi: 165,
+        aqiStatus: 'Kém (Bụi sa mạc)',
+        aqiColor: '#f97316',
+        pm25: 78.6,
+        no2Val: 45.2,
+        no2: '45.2 ppb (Vừa phải)',
+        o3Val: 49.1,
+        o3: '49.1 ppb (Vừa phải)',
+        temp: '31.8°C',
+        pressure: '1011.5 hPa',
+        wind: '14 km/h Đông Bắc',
+        humidity: '35%',
+        cloudCover: '10% (Bụi cát lơ lửng)',
+        aod: '0.85 (Sol khí cao)',
+        trend: '+0.075°C / năm'
+      }
+    };
+
+    let activeCityKey = 'hanoi';
+    let currentMode = '3d'; // '3d' or '2d'
+    let currentPollutant = 'aqi'; // 'aqi' | 'pm25' | 'no2' | 'o3'
+    let plumesActive = true;
+
+    // Helper: compute color, level & height for any pollutant & city
+    function getCityPollutantMetrics(city, pollutant) {
+      if (pollutant === 'pm25') {
+        const val = city.pm25;
+        let color = '#10b981';
+        let status = 'Tốt (WHO)';
+        let whoRatio = (val / 15).toFixed(1);
+        if (val > 55.4) {
+          color = '#ef4444';
+          status = 'Nguy hại';
+        } else if (val > 35.4) {
+          color = '#f97316';
+          status = 'Kém';
+        } else if (val > 12) {
+          color = '#f59e0b';
+          status = 'Trung bình';
+        }
+        return {
+          value: val,
+          unit: 'µg/m³',
+          color,
+          status,
+          subtext: `Vượt ${whoRatio}x WHO chuẩn ngày`,
+          alertText: val > 35.4 ? 'Cảnh báo PM2.5 cao: Hạn chế tập thể dục ngoài trời, nên đeo khẩu trang lọc N95.' : 'Nồng độ bụi PM2.5 ở mức kiểm soát được.'
+        };
+      } else if (pollutant === 'no2') {
+        const val = city.no2Val;
+        let color = '#38bdf8';
+        let status = 'Tốt';
+        if (val > 100) {
+          color = '#ef4444';
+          status = 'Nguy hại';
+        } else if (val > 50) {
+          color = '#f97316';
+          status = 'Kém (Đô thị)';
+        } else if (val > 20) {
+          color = '#0ea5e9';
+          status = 'Trung bình';
+        }
+        return {
+          value: val,
+          unit: 'ppb',
+          color,
+          status,
+          subtext: 'Khí thải ô tô & nhiệt điện',
+          alertText: val > 50 ? 'Khí NO₂ tăng cao ở các tuyến giao thông trọng điểm, tăng nguy cơ hen suyễn.' : 'Chỉ số khí NO₂ đo bởi TROPOMI trong ngưỡng an toàn.'
+        };
+      } else if (pollutant === 'o3') {
+        const val = city.o3Val;
+        let color = '#10b981';
+        let status = 'Tốt';
+        if (val > 90) {
+          color = '#ef4444';
+          status = 'Nguy hại';
+        } else if (val > 60) {
+          color = '#f97316';
+          status = 'Kém';
+        } else if (val > 30) {
+          color = '#84cc16';
+          status = 'Trung bình';
+        }
+        return {
+          value: val,
+          unit: 'ppb',
+          color,
+          status,
+          subtext: 'Quang hóa dưới ánh nắng',
+          alertText: val > 60 ? 'Ozone mặt đất cao: Tránh hoạt động ngoài trời lúc nhiệt độ đỉnh điểm giữa trưa.' : 'Nồng độ Ozone tầng đối lưu ở mức an toàn sinh thái.'
+        };
+      } else {
+        // Default AQI
+        return {
+          value: city.aqi,
+          unit: 'AQI',
+          color: city.aqiColor,
+          status: city.aqiStatus,
+          subtext: 'Bụi mịn & sol khí',
+          alertText: city.aqi > 150 ? 'Chỉ số AQI tổng hợp ở mức Nguy hại cho sức khỏe cộng đồng.' : 'Chất lượng không khí chung được giám sát liên tục.'
+        };
+      }
+    }
+
+    // ----------------- POLLUTANT FILTER HANDLER -----------------
+    function setPollutantFilter(filterType) {
+      currentPollutant = filterType;
+
+      // Update Top Bar buttons styling
+      const buttons = {
+        aqi: document.getElementById('btn-pollutant-aqi'),
+        pm25: document.getElementById('btn-pollutant-pm25'),
+        no2: document.getElementById('btn-pollutant-no2'),
+        o3: document.getElementById('btn-pollutant-o3')
+      };
+
+      Object.keys(buttons).forEach(key => {
+        const btn = buttons[key];
+        btn.className = `filter-pill px-3.5 py-1.5 rounded-xl text-xs font-mono font-medium flex items-center gap-2 border transition-all text-slate-400 hover:text-white hover:bg-slate-800/60 border-transparent`;
+      });
+
+      if (filterType === 'aqi') {
+        buttons.aqi.className = 'filter-pill active-aqi px-3.5 py-1.5 rounded-xl text-xs font-mono font-medium flex items-center gap-2 border';
+        document.getElementById('active-sensor-name').textContent = 'NASA EOS / MODIS + OMI COMPOSITE';
+      } else if (filterType === 'pm25') {
+        buttons.pm25.className = 'filter-pill active-pm25 px-3.5 py-1.5 rounded-xl text-xs font-mono font-medium flex items-center gap-2 border';
+        document.getElementById('active-sensor-name').textContent = 'MODIS AOD 550nm / MISR PARTICULATE';
+      } else if (filterType === 'no2') {
+        buttons.no2.className = 'filter-pill active-no2 px-3.5 py-1.5 rounded-xl text-xs font-mono font-medium flex items-center gap-2 border';
+        document.getElementById('active-sensor-name').textContent = 'SENTINEL-5P / TROPOMI NO₂ COLUMN';
+      } else if (filterType === 'o3') {
+        buttons.o3.className = 'filter-pill active-o3 px-3.5 py-1.5 rounded-xl text-xs font-mono font-medium flex items-center gap-2 border';
+        document.getElementById('active-sensor-name').textContent = 'AURA OMI / OMPS TROPOSPHERIC O₃';
+      }
+
+      // Sync drawer select
+      const drawerSelect = document.getElementById('drawer-pollutant-select');
+      if (drawerSelect && drawerSelect.value !== filterType) {
+        drawerSelect.value = filterType;
+      }
+
+      // Dispatch event to dynamic 3D plumes Three.js scene
+      window.dispatchEvent(new CustomEvent('nasa-filter-pollutant', { detail: filterType }));
+
+      // Update Bottom Legend
+      updateLegend(filterType);
+
+      // Update 2D Map Markers if active
+      if (leafletMap) {
+        update2DMarkers();
+      }
+
+      // Update Left Telemetry HUD
+      updateHUD(CITIES_DATA[activeCityKey]);
+    }
+
+    function updateLegend(filterType) {
+      const legLabel = document.getElementById('legend-label');
+      const leg1 = document.getElementById('leg-1');
+      const leg2 = document.getElementById('leg-2');
+      const leg3 = document.getElementById('leg-3');
+      const leg4 = document.getElementById('leg-4');
+
+      if (filterType === 'pm25') {
+        legLabel.textContent = 'Thang đo Bụi mịn PM2.5 (WHO):';
+        leg1.textContent = 'Tốt (0-12 µg/m³)';
+        leg2.textContent = 'TB (12.1-35.4)';
+        leg3.textContent = 'Kém (35.5-55.4)';
+        leg4.textContent = 'Nguy hại (>55.4)';
+      } else if (filterType === 'no2') {
+        legLabel.textContent = 'Thang đo Khí NO₂ (ppb):';
+        leg1.textContent = 'Tốt (0-20 ppb)';
+        leg2.textContent = 'TB (21-50 ppb)';
+        leg3.textContent = 'Kém (51-100 ppb)';
+        leg4.textContent = 'Nguy hại (>100 ppb)';
+      } else if (filterType === 'o3') {
+        legLabel.textContent = 'Thang đo Khí O₃ tầng đối lưu:';
+        leg1.textContent = 'Tốt (0-30 ppb)';
+        leg2.textContent = 'TB (31-60 ppb)';
+        leg3.textContent = 'Kém (61-90 ppb)';
+        leg4.textContent = 'Nguy hại (>90 ppb)';
+      } else {
+        legLabel.textContent = 'Mức độ Ô nhiễm Không khí:';
+        leg1.textContent = 'Tốt (0-50)';
+        leg2.textContent = 'Trung bình (51-100)';
+        leg3.textContent = 'Kém (101-150)';
+        leg4.textContent = 'Nguy hại (>150)';
+      }
+    }
+
+    // ----------------- UI UPDATER FUNCTION -----------------
+    function updateHUD(city) {
+      document.getElementById('hud-city-name').textContent = city.name;
+      document.getElementById('hud-city-coord').textContent = `${Math.abs(city.lat).toFixed(2)}°${city.lat >= 0 ? 'N' : 'S'} | ${Math.abs(city.lon).toFixed(2)}°${city.lon >= 0 ? 'E' : 'W'} • ${city.country}`;
+      
+      const metrics = getCityPollutantMetrics(city, currentPollutant);
+
+      // Card 1 (Primary)
+      const lbl1 = document.getElementById('hud-metric-label-1');
+      const val1 = document.getElementById('hud-metric-val-1');
+      const unit1 = document.getElementById('hud-metric-unit-1');
+      const badge1 = document.getElementById('hud-metric-badge-1');
+      const sub1 = document.getElementById('hud-metric-sub-1');
+
+      // Card 2 (Secondary)
+      const lbl2 = document.getElementById('hud-metric-label-2');
+      const val2 = document.getElementById('hud-metric-val-2');
+      const unit2 = document.getElementById('hud-metric-unit-2');
+      const sub2 = document.getElementById('hud-metric-sub-2');
+
+      if (currentPollutant === 'pm25') {
+        lbl1.textContent = 'NỒNG ĐỘ PM2.5';
+        val1.textContent = city.pm25;
+        val1.style.color = metrics.color;
+        unit1.textContent = 'µg/m³';
+        unit1.classList.remove('hidden');
+        badge1.textContent = metrics.status;
+        badge1.style.color = metrics.color;
+        badge1.style.borderColor = metrics.color + '55';
+        badge1.style.backgroundColor = metrics.color + '22';
+        sub1.textContent = 'Bụi mịn lơ lửng';
+
+        lbl2.textContent = 'SO SÁNH TIÊU CHUẨN';
+        val2.textContent = `${(city.pm25 / 15).toFixed(1)}x`;
+        val2.style.color = metrics.color;
+        unit2.textContent = 'chuẩn WHO';
+        sub2.textContent = metrics.subtext;
+      } else if (currentPollutant === 'no2') {
+        lbl1.textContent = 'KHÍ NO₂ TROPOMI';
+        val1.textContent = city.no2Val;
+        val1.style.color = metrics.color;
+        unit1.textContent = 'ppb';
+        unit1.classList.remove('hidden');
+        badge1.textContent = metrics.status;
+        badge1.style.color = metrics.color;
+        badge1.style.borderColor = metrics.color + '55';
+        badge1.style.backgroundColor = metrics.color + '22';
+        sub1.textContent = 'Khí thải công nghiệp';
+
+        lbl2.textContent = 'CHỈ SỐ AQI';
+        val2.textContent = city.aqi;
+        val2.style.color = city.aqiColor;
+        unit2.textContent = '';
+        sub2.textContent = city.aqiStatus;
+      } else if (currentPollutant === 'o3') {
+        lbl1.textContent = 'OZONE O₃ ĐỐI LƯU';
+        val1.textContent = city.o3Val;
+        val1.style.color = metrics.color;
+        unit1.textContent = 'ppb';
+        unit1.classList.remove('hidden');
+        badge1.textContent = metrics.status;
+        badge1.style.color = metrics.color;
+        badge1.style.borderColor = metrics.color + '55';
+        badge1.style.backgroundColor = metrics.color + '22';
+        sub1.textContent = 'Khí oxy hóa tầng mặt';
+
+        lbl2.textContent = 'CHỈ SỐ AQI';
+        val2.textContent = city.aqi;
+        val2.style.color = city.aqiColor;
+        unit2.textContent = '';
+        sub2.textContent = city.aqiStatus;
+      } else {
+        // AQI Mode
+        lbl1.textContent = 'CHỈ SỐ AQI';
+        val1.textContent = city.aqi;
+        val1.style.color = city.aqiColor;
+        unit1.classList.add('hidden');
+        badge1.textContent = city.aqiStatus;
+        badge1.style.color = city.aqiColor;
+        badge1.style.borderColor = city.aqiColor + '55';
+        badge1.style.backgroundColor = city.aqiColor + '22';
+        sub1.textContent = 'Chỉ số tổng hợp';
+
+        lbl2.textContent = 'NỒNG ĐỘ PM2.5';
+        val2.textContent = city.pm25;
+        val2.style.color = '#38bdf8';
+        unit2.textContent = 'µg/m³';
+        sub2.textContent = `Vượt ${(city.pm25 / 15).toFixed(1)}x WHO`;
+      }
+
+      // Health Warning Banner
+      const alertBox = document.getElementById('hud-pollutant-alert');
+      const alertText = document.getElementById('hud-pollutant-alert-text');
+      alertText.textContent = metrics.alertText;
+      alertBox.style.borderColor = metrics.color + '44';
+      alertBox.style.backgroundColor = metrics.color + '15';
+
+      // General telemetry breakdown
+      document.getElementById('hud-pm25-row').textContent = `${city.pm25} µg/m³`;
+      document.getElementById('hud-no2').textContent = city.no2;
+      document.getElementById('hud-o3').textContent = city.o3;
+      document.getElementById('hud-pressure').textContent = city.pressure;
+      document.getElementById('hud-cloud-cover').textContent = city.cloudCover;
+      document.getElementById('hud-temp-trend').textContent = city.trend;
+
+      // Highlight active row in breakdown
+      ['row-pm25', 'row-no2', 'row-o3'].forEach(r => document.getElementById(r)?.classList.remove('bg-cyan-950/60', 'px-1.5', 'rounded'));
+      if (currentPollutant === 'pm25') document.getElementById('row-pm25')?.classList.add('bg-cyan-950/60', 'px-1.5', 'rounded');
+      if (currentPollutant === 'no2') document.getElementById('row-no2')?.classList.add('bg-cyan-950/60', 'px-1.5', 'rounded');
+      if (currentPollutant === 'o3') document.getElementById('row-o3')?.classList.add('bg-cyan-950/60', 'px-1.5', 'rounded');
+
+      // Update preset buttons state
+      document.querySelectorAll('.preset-btn').forEach(btn => {
+        if (btn.getAttribute('onclick')?.includes(city.id)) {
+          btn.className = 'preset-btn active px-3 py-1.5 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-400/30 transition-all font-medium';
+        } else {
+          btn.className = 'preset-btn px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all';
+        }
+      });
+      document.getElementById('select-city-target').value = city.id;
+    }
+
+    // ----------------- LEAFLET 2D SATELLITE MAP WITH HOVER HUD -----------------
+    let leafletMap = null;
+    let leafletMarkerMap = new Map();
+
+    function init2D() {
+      if (leafletMap) return;
+
+      leafletMap = L.map('leaflet-map', {
+        zoomControl: false,
+        attributionControl: false
+      }).setView([CITIES_DATA.hanoi.lat, CITIES_DATA.hanoi.lon], 4);
+
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 18
+      }).addTo(leafletMap);
+
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+        maxZoom: 18,
+        subdomains: 'abcd'
+      }).addTo(leafletMap);
+
+      L.control.zoom({ position: 'topright' }).addTo(leafletMap);
+
+      update2DMarkers();
+    }
+
+    function createLeafletIcon(color) {
+      return L.divIcon({
+        className: 'custom-leaflet-pin',
+        html: `
+          <div class="relative flex items-center justify-center cursor-pointer group" style="width: 34px; height: 34px;">
+            <span class="pulse-ring absolute w-8 h-8 rounded-full" style="background-color: ${color}; opacity: 0.65;"></span>
+            <span class="relative w-4 h-4 rounded-full border-2 border-white shadow-xl flex items-center justify-center" style="background-color: ${color};">
+              <span class="w-1.5 h-1.5 rounded-full bg-white"></span>
+            </span>
+          </div>
+        `,
+        iconSize: [34, 34],
+        iconAnchor: [17, 17]
+      });
+    }
+
+    function generatePopupContent(city) {
+      const metrics = getCityPollutantMetrics(city, currentPollutant);
+      return `
+        <div class="hud-glass rounded-xl p-3.5 w-80 text-xs shadow-2xl border border-cyan-400/50 relative overflow-hidden backdrop-blur-2xl">
+          <div class="flex items-center justify-between pb-2 border-b border-cyan-500/20 mb-2">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full" style="background-color: ${metrics.color};"></span>
+              <span class="font-hud font-bold text-white text-sm tracking-wide">${city.name.toUpperCase()}</span>
+            </div>
+            <span class="font-mono text-[10px] text-cyan-300 px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-700/50">${city.country}</span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 mb-2">
+            <div class="bg-black/60 p-2 rounded-lg border border-slate-800">
+              <div class="text-[10px] text-slate-400 uppercase font-mono">${currentPollutant === 'aqi' ? 'CHỈ SỐ AQI' : 'NỒNG ĐỘ ' + currentPollutant.toUpperCase()}</div>
+              <div class="flex items-baseline gap-1.5">
+                <span class="font-hud text-lg font-bold" style="color: ${metrics.color};">${metrics.value}</span>
+                <span class="text-[9px] text-slate-400 font-mono">${metrics.unit}</span>
+                <span class="text-[10px] font-semibold" style="color: ${metrics.color};">${metrics.status}</span>
+              </div>
+            </div>
+            <div class="bg-black/60 p-2 rounded-lg border border-slate-800">
+              <div class="text-[10px] text-slate-400 uppercase font-mono">ĐÁNH GIÁ CHUẨN</div>
+              <div class="flex items-baseline gap-1">
+                <span class="font-hud text-sm font-bold text-cyan-300">${metrics.subtext}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-1.5 pt-1.5 border-t border-slate-800/80 font-mono text-[10px]">
+            <div class="flex justify-between items-center text-slate-300">
+              <span class="text-slate-400"><i class="fa-solid fa-temperature-half text-rose-400 mr-1.5"></i>Nhiệt độ / Áp suất:</span>
+              <span class="text-white font-medium">${city.temp} | ${city.pressure}</span>
+            </div>
+            <div class="flex justify-between items-center text-slate-300">
+              <span class="text-slate-400"><i class="fa-solid fa-wind text-sky-400 mr-1.5"></i>Gió / Độ ẩm khí:</span>
+              <span class="text-white font-medium">${city.wind} | ${city.humidity}</span>
+            </div>
+            <div class="flex justify-between items-center text-slate-300">
+              <span class="text-slate-400"><i class="fa-solid fa-smog text-amber-400 mr-1.5"></i>Khí NO₂ / O₃:</span>
+              <span class="text-white font-medium">${city.no2Val} ppb | ${city.o3Val} ppb</span>
+            </div>
+            <div class="flex justify-between items-center text-slate-300">
+              <span class="text-slate-400"><i class="fa-solid fa-cloud text-cyan-400 mr-1.5"></i>Độ che phủ mây:</span>
+              <span class="text-cyan-300 font-medium">${city.cloudCover}</span>
+            </div>
+          </div>
+
+          <div class="mt-2 text-[9px] text-center text-cyan-400 italic font-mono bg-cyan-950/40 py-1 rounded border border-cyan-800/40">
+            Nhấp chuột để khóa mục tiêu phân tích
+          </div>
+        </div>
+      `;
+    }
+
+    function update2DMarkers() {
+      if (!leafletMap) return;
+
+      Object.values(CITIES_DATA).forEach(city => {
+        const metrics = getCityPollutantMetrics(city, currentPollutant);
+        let marker = leafletMarkerMap.get(city.id);
+
+        if (!marker) {
+          marker = L.marker([city.lat, city.lon], { icon: createLeafletIcon(metrics.color) }).addTo(leafletMap);
+          marker.bindPopup(generatePopupContent(city), {
+            closeButton: false,
+            offset: [0, -10],
+            className: 'custom-leaflet-popup'
+          });
+
+          marker.on('mouseover', function () { this.openPopup(); });
+          marker.on('mouseout', function () { this.closePopup(); });
+          marker.on('click', function () { selectCity(city.id); });
+
+          leafletMarkerMap.set(city.id, marker);
+        } else {
+          marker.setIcon(createLeafletIcon(metrics.color));
+          marker.setPopupContent(generatePopupContent(city));
+        }
+      });
+    }
+
+    // ----------------- CITY TARGET SELECTION -----------------
+    function selectCity(cityKey) {
+      if (!CITIES_DATA[cityKey]) return;
+      activeCityKey = cityKey;
+      const city = CITIES_DATA[cityKey];
+      updateHUD(city);
+
+      if (leafletMap) {
+        leafletMap.flyTo([city.lat, city.lon], 6, {
+          animate: true,
+          duration: 1.5
+        });
+      }
+    }
+
+    // Listen for custom target selection dispatched from 3D scene
+    window.addEventListener('globe-target-selected', (e) => {
+      const hit = e.detail;
+      if (hit && hit.name) {
+        const found = Object.keys(CITIES_DATA).find(k => CITIES_DATA[k].name.toLowerCase().includes(hit.name.toLowerCase()) || hit.name.toLowerCase().includes(CITIES_DATA[k].name.toLowerCase()));
+        if (found) {
+          activeCityKey = found;
+          updateHUD(CITIES_DATA[found]);
+        }
+      }
+    });
+
+    // ----------------- SWITCH BETWEEN 3D & 2D MODES -----------------
+    const btn3D = document.getElementById('btn-mode-3d');
+    const btn2D = document.getElementById('btn-mode-2d');
+    const wrap3D = document.getElementById('view-3d-wrapper');
+    const wrap2D = document.getElementById('view-2d-wrapper');
+    const toggles3D = document.getElementById('realistic-3d-toggles');
+
+    btn3D.addEventListener('click', () => {
+      if (currentMode === '3d') return;
+      currentMode = '3d';
+      btn3D.className = 'px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all duration-300 bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-500/30';
+      btn2D.className = 'px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all duration-300 text-slate-400 hover:text-white hover:bg-slate-800/60';
+      
+      wrap3D.classList.remove('opacity-0', 'pointer-events-none');
+      wrap2D.classList.add('opacity-0', 'pointer-events-none');
+      toggles3D.style.display = 'flex';
+    });
+
+    btn2D.addEventListener('click', () => {
+      if (currentMode === '2d') return;
+      currentMode = '2d';
+      btn2D.className = 'px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all duration-300 bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-500/30';
+      btn3D.className = 'px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all duration-300 text-slate-400 hover:text-white hover:bg-slate-800/60';
+
+      wrap2D.classList.remove('opacity-0', 'pointer-events-none');
+      wrap3D.classList.add('opacity-0', 'pointer-events-none');
+      toggles3D.style.display = 'none';
+
+      init2D();
+      setTimeout(() => {
+        if (leafletMap) {
+          leafletMap.invalidateSize();
+          const city = CITIES_DATA[activeCityKey];
+          leafletMap.setView([city.lat, city.lon], 5);
+        }
+      }, 200);
+    });
+
+    // ----------------- TOGGLES & DRAWER -----------------
+    // Dedicated 3D Pollution Plumes Toggle
+    const togglePlumesBtn = document.getElementById('toggle-plumes');
+    togglePlumesBtn.addEventListener('click', function() {
+      plumesActive = !plumesActive;
+      window.dispatchEvent(new CustomEvent('nasa-toggle-plumes', { detail: plumesActive }));
+      if (plumesActive) {
+        this.className = 'px-2.5 py-1 rounded-lg text-[11px] font-mono border border-amber-500/50 bg-amber-950/50 text-amber-300 flex items-center gap-1.5 hover:bg-amber-900/40 transition-all shadow-sm shadow-amber-500/20';
+      } else {
+        this.className = 'px-2.5 py-1 rounded-lg text-[11px] font-mono border border-slate-700 bg-slate-800/80 text-slate-400 flex items-center gap-1.5 hover:bg-slate-700 transition-all';
+      }
+    });
+
+    document.getElementById('toggle-clouds').addEventListener('click', function() {
+      this.classList.toggle('bg-cyan-950/60');
+      this.classList.toggle('bg-slate-800');
+    });
+
+    document.getElementById('toggle-rotation').addEventListener('click', function() {
+      this.classList.toggle('bg-cyan-950/60');
+      this.classList.toggle('bg-slate-800');
+    });
+
+    document.getElementById('select-city-target').addEventListener('change', function(e) {
+      selectCity(e.target.value);
+    });
+
+    // Scientific details drawer
+    const drawer = document.getElementById('scientific-drawer');
+    document.getElementById('btn-toggle-drawer').addEventListener('click', () => {
+      drawer.classList.remove('translate-x-full');
+    });
+    document.getElementById('btn-close-drawer').addEventListener('click', () => {
+      drawer.classList.add('translate-x-full');
+    });
+
+    // Initial boot
+    window.addEventListener('DOMContentLoaded', () => {
+      setPollutantFilter('aqi');
+      updateHUD(CITIES_DATA.hanoi);
+    });
+  </script>
+</body></html>

@@ -13,11 +13,15 @@ Errors: `{"detail": "<message>"}` with HTTP 404 (unknown id / missing preset fil
 |---|---|
 | `GET /api/variables` | `[{id, topic, unit, name{vi,en}, desc{vi,en}}]` |
 | `GET /api/cities` | `[{id, name{vi,en}, lat, lon}]` (+ `region`: `"vn"` or `"world"`) |
-| `GET /api/analyze?city&var&deseason&annual` | `t[], v[], fit[2], slope, ci[2], p_t, p_mk, tau, sen, r1, n_eff, total, span, sig, verdict{vi,en}` (+ `n`, `source`, `quality{…}`). Also accepts `lat`+`lon` or `preset=<id>` |
+| `GET /api/analyze?city&var&deseason&annual` | `t[], v[], fit[2], slope, ci[2], p_t, p_mk, tau, sen, r1, n_eff, total, span, sig, verdict{vi,en}` (+ `n`, `source`, `quality{…}`, `evidence{…}`). Also accepts `lat`+`lon` or `preset=<id>` |
 | `GET /api/lag?city&a&b&detrend` | `lags[0..3], r[], p[], best_lag, caveat{vi,en}` (+ `a, b, n[], sig, detrended`) |
 | `GET /api/anomaly?city&var` | `months[{t, v, p05, p95, flag}]` (+ `var, unit, n_flagged`) |
 | `GET /api/ranking?var&region` | `[{city, lat, lon, slope, p, sig}]` (+ `name{vi,en}, region, p_mk, q, sig_fdr`), sorted by slope, descending. `region` = `all` (default), `vn` or `world` |
-| `GET /api/scan?city` | `[{var, kind, name{vi,en}, unit, slope, total, effect_sd, tau, p, p_mk, q, sig, sig_fdr, n, span}]`: every variable at one place, strongest evidence first |
+| `GET /api/scan?city` | `[{var, kind, name{vi,en}, unit, slope, total, effect_sd, tau, p, p_mk, q, sig, sig_fdr, n, span}]` (+ `topic, coverage, evidence{…}`): every variable at one place, strongest evidence first |
+| `GET /api/brief?city` | `place{vi,en}, period[2], generated, n_vars, n_trusted, headline{vi,en}, findings[…], watch[…], actions[{topic, var, direction, vi, en, level}], caveats[{vi,en}]` (+ `city`): the one-page decision brief |
+| `GET /api/globe?var` | `var, unit, name{vi,en}, years[], cities[{city, name{vi,en}, region, lat, lon, slope, p, p_mk, sig, sig_fdr, q, effect_sd, anom[]}]`: all cities for one variable; `anom[i]` is the de-seasoned yearly mean for `years[i]` (`null` = no data) |
+| `GET /api/weekly?var&city` (or `lat`,`lon`; `weeks`=52, 20-104) | `var, unit, name{vi,en}, weeks[]` (week-ending dates), `v[]`, `clim[]` (same ISO week, earlier years), `anom[]`, `slope_week, p, sig, n, n_eff, mean_anom, last{week, v, clim, anom}, note{vi,en}`, `recent{end, stale_days, n, mean, clim, anom, effect_sd, p, sig, days{dates[], v[], clim[]}, note{vi,en}}` (the last 7 days with data vs normal, 30-day context; null if not enough data): the last 52 weeks vs the same weeks of earlier years, from NASA POWER daily data. 422 for CSV presets (monthly only) |
+| `GET /api/highlights?limit` | `{as_of, done, total, finished, tests, items[{city, place{vi,en}, region, lat, lon, var, topic, name{vi,en}, unit, direction, effect_sd, anom, mean, clim, end, p, q, sig_fdr, n, spark{dates[], v[], clim[]}}]}`: notable changes of the LAST 7 DAYS with data (`end` = last date) vs the normal for that time of year, over all cities x POWER indicators (daily data no more than 10 days old). `effect_sd` = z against the sd of 7-day-mean anomalies in the same season (+-30 days) of earlier years; `p` = how often a week that unusual happened then (empirical, so never below about 0.003); `q` = Benjamini-Hochberg over all tests; only p < 0.05 candidates; FDR survivors first; at most 2 per city. Computed in a background thread: poll until `finished`. |
 | `GET /api/summary?city&var&b` | `headline{vi,en}, bullets[{kind, tone, vi, en}], text{vi,en}, facts{…}, period[2]` (+ `var, b, city, unit, name, place`). `b` and `rank=false` are optional |
 | `POST /api/upload` (multipart `file`) | same structure as `/api/analyze` (incl. `quality`). Optional `min_days` |
 | `GET /api/presets` | `[{id, kind, city, var, title{vi,en}, available}]`, includes `hcm_aod`, `hcm_no2`, `hcm_fire` (+ `name, desc, unit, topic` for CSV presets) |
@@ -38,6 +42,15 @@ Meaning of the fields
   `tone` is `up | down | flat | warn | info`. `bullets[0]` is always the trend verdict. `text` = headline + bullets as one paragraph.
   `facts` holds the raw numbers: `slope, ci, p_t, p_mk, sig, total, n, block_diff, max_year, min_year, peak_month, low_month,
   n_high, n_low, n_high_recent, n_low_recent, best_lag, lag_r, lag_sig, rank, rank_total, missing_months, r1, n_eff`.
+- `evidence` (inside `analyze`, `upload`, and every `scan` / brief finding): how far a monthly trend can be trusted.
+  `level` = `strong | moderate | weak | none`, `score` of `of` (=5) checks passed, `coverage` (0-1), `capped`, `checks[{id, passed, vi, en}]`.
+  Checks: (1) both tests significant, (2) still significant without outlier months, (3) same direction in both halves of the period,
+  (4) still significant on yearly means, (5) enough data (>= 85% of months and >= 10 years). `strong` = significant and >= 4 checks, `moderate` = significant and 3,
+  `weak` = significant and <= 2, `none` = not significant. In `scan` / `brief`, a `strong` finding with `q >= 0.01` is lowered to `moderate` and `capped` is `true`.
+  The score measures robustness, not how serious the change is.
+- `brief`: `findings` are the FDR-trusted variables (at most 6), most trustworthy first, each `{var, kind, topic, name{vi,en}, unit, direction: "up"|"down", slope, total,
+  effect_sd, p, p_mk, q, span, n, coverage, evidence}`. `watch` = not FDR-trusted but |effect_sd| >= 0.5 (at most 4). `actions` come from a public rule table (`ACTION_RULES`
+  in `backend/main.py`), only for findings with evidence `moderate` or better; `topic` is `heat | air | water | energy | wind | other`. They are directions to consider, not policy advice.
 - `quality` (inside `analyze` and `upload`): a report on the raw series; nothing is removed or imputed by it.
   `span[2], n_expected, n_valid, n_missing, coverage (0-1), longest_gap, missing_by_month{"1".."12"}, n_outliers,
   outliers[{t, v, z}]` (robust z against the same calendar month, `|z| > 3.5`), `parse` (CSV only: `rows_numeric, fill_dropped, bad_dates,
@@ -122,3 +135,17 @@ Meaning of the fields
 ## Workflow
 - Drop Giovanni CSVs into `backend/presets/` (`hcm_aod.csv`, `hcm_no2.csv`) and raw crawls into `data/raw/`; no code change needed.
 - Frontend `USE_MOCK` (top of `frontend/app.js`, or open the page with `?mock=1`) serves `frontend/mock/*.json` instead of the API.
+
+
+- `effect_sd` in `globe` is now defined exactly as in `scan` / `brief` (change over the period divided by the standard deviation of the de-seasoned monthly series), so the same city and indicator show the same number everywhere.
+
+### GET /api/heatlayers
+NASA GIBS map layer per indicator for the home globe heatmap: `{wms, base, layers: {VAR: {layer, title, time, legend}}}`. Only indicators with a GIBS layer measuring the same quantity are listed; the heatmap is a monthly background map, not the 7-day window.
+
+### GET /api/cycle
+`?vars=T2M,hcm_aod,hcm_no2&city=|lat=&lon=&start=2004&end=2025`. Seasonal-cycle amplitude (highest minus lowest calendar month) per indicator:
+`items[]: {var, unit, name, early{label, years, months[{m, mean, n}], amp, peak, trough, valid_months}, late{...}, amp_change_pct, yearly[{y, n, mean, amp}], amp_trend{slope, tau, p, n, sig}}`.
+`early`/`late` are the first and last half of the years. A period gets no amplitude (`amp: null`) unless >= 9 calendar months have >= 3 years of data. Presets (AOD, NO2) exist only for their own city and are listed in `skipped` otherwise.
+
+### GET /api/correlations
+Serves `data/processed/correlations.json`, written by the preprocessing module (`python scripts/prepare_hcm_data.py`); the API does not compute correlations. `pairs[]: {a, b, expect, why{vi,en}, lags, r, p, q, n, best_lag, r_best, p_best, q_best, status: candidate|weak|none, agrees}`. De-seasonalised and detrended series, lags 0-3 months, p with effective sample size, q = Benjamini-Hochberg over every pair x lag. `candidate` = q < 0.05 and |r| >= 0.3. 404 if the file has not been generated.

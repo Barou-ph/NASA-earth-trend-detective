@@ -12,8 +12,11 @@ Rules (every number in the report comes from this script, nothing is typed by ha
     months not fully covered by the file (the current, partial month) are dropped
   * outliers are flagged (robust z against the same calendar month), never deleted: a real event cannot be told from an artefact
   * every choice is stress-tested in the sensitivity tables so the reader can see whether the conclusion depends on it
+
+Correlation screening (do_correlations) also lives here: the preprocessing module decides which variable pairs are worth showing.
+Writes : data/processed/correlations.json (served read-only by GET /api/correlations; the API does not compute correlations itself)
 """
-import csv, json, math, pathlib, sys
+import csv, datetime, json, math, pathlib, sys
 import numpy as np, pandas as pd
 from scipy import stats
 
@@ -24,6 +27,7 @@ import backend.main as M                                           # analyze(), 
 RAW = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "nasa_data" / "data" / "raw"
 PROC, PRESETS, DOCS = ROOT / "data" / "processed", ROOT / "backend" / "presets", ROOT / "docs"
 for d in (PROC, PRESETS, DOCS): d.mkdir(parents=True, exist_ok=True)
+LAGS = M.LAGS
 MIN_DAYS = 10                                                       # valid days needed for an NO2 month
 NO2_SCALE = 1e15                                                    # report NO2 in 10^15 molec/cm2
 HCM = (10.78, 106.70)
@@ -144,8 +148,74 @@ def do_fire():
                                        "Source: NASA FIRMS archive (MODIS_SP)"], mo.rename(columns={"date": "time"}).assign(time=lambda t: t.iloc[:, 0].dt.strftime("%Y-%m-%d")))
 
 # ------------------------------------------------------------------------------ report
+# ------------------------------------------------------------------------ correlation screening
+CORR_Y0, CORR_Y1 = 2004, 2025                                       # common years of AOD (2004->) and NO2 (2004-10->); the partial current year is excluded
+CORR_Q, CORR_R = 0.05, 0.30                                         # a pair is a "candidate" when the FDR-adjusted p < 0.05 AND |r| >= 0.3 (otherwise "weak" if raw p < 0.05, else "none")
+# Candidate pairs and why each could be related (physics first, data second). expect = sign we would expect if the mechanism is real (None = no firm expectation).
+CORR_PAIRS = [
+    ("T2M", "hcm_aod", None, "Nhiệt độ cao đi cùng mùa khô (ít mưa rửa trôi) nên bụi có thể tăng.", "High temperature goes with the dry season (less rain washout), so aerosols may rise."),
+    ("T2M", "hcm_no2", None, "Nhiệt độ ảnh hưởng quang hóa và độ xáo trộn của lớp khí quyển sát đất.", "Temperature affects photochemistry and mixing of the near-surface air."),
+    ("hcm_aod", "hcm_no2", "+", "Cùng nguồn phát thải (giao thông, đốt) và cùng chịu thời tiết.", "Shared sources (traffic, burning) and shared weather."),
+    ("PRECTOTCORR", "hcm_aod", "-", "Mưa rửa trôi bụi khỏi khí quyển.", "Rain washes aerosols out of the air."),
+    ("PRECTOTCORR", "hcm_no2", "-", "Mưa và mây làm giảm NO₂ trong cột khí.", "Rain and cloud reduce the NO₂ column."),
+    ("WS2M", "hcm_no2", "-", "Gió mạnh phân tán khí thải.", "Strong wind disperses emissions."),
+    ("WS2M", "hcm_aod", "-", "Gió mạnh phân tán bụi.", "Strong wind disperses aerosols."),
+    ("RH2M", "hcm_aod", None, "Độ ẩm làm hạt bụi nở ra, đổi độ dày quang học.", "Humidity swells particles and changes optical depth."),
+    ("hcm_fire", "hcm_aod", "+", "Cháy thực vật tạo khói; khói bay xa nên xét độ trễ 0–3 tháng.", "Vegetation fires make smoke; smoke travels, so lags of 0-3 months are tested."),
+]
+def corr_series(src):
+    df, meta = M.get_series(src, HCM[0], HCM[1], CORR_Y0, CORR_Y1)
+    df = df[(df.t >= CORR_Y0) & (df.t < CORR_Y1 + 1)].reset_index(drop=True)
+    return df, meta
+def do_correlations():
+    series, names, skipped = {}, {}, []
+    def get(src):
+        if src in series: return series[src]
+        try:
+            if src == "hcm_fire" and not (PRESETS / "hcm_fire.csv").exists(): raise FileNotFoundError("no fire preset (needs >= 5 years of FIRMS)")
+            series[src], meta = corr_series(src); names[src] = meta["name"]
+        except Exception as e:                                       # offline POWER, missing preset...: report it, do not invent
+            series[src] = None; skipped.append(dict(var=src, reason=str(getattr(e, "detail", e))))
+        return series[src]
+    rows = []
+    for a, b, expect, why_vi, why_en in CORR_PAIRS:
+        da, db = get(a), get(b)
+        if da is None or db is None: continue
+        try: r = M.lag_calc(da, db, detrend=True)
+        except Exception as e:
+            skipped.append(dict(var=f"{a}~{b}", reason=str(getattr(e, "detail", e)))); continue
+        rows.append(dict(a=a, b=b, expect=expect, why=dict(vi=why_vi, en=why_en), lags=r["lags"], r=r["r"], p=r["p"], n=r["n"], best_lag=r["best_lag"]))
+    qs = M.bh_adjust([p for x in rows for p in x["p"]]) if rows else []        # one FDR family: every pair x lag that was tested
+    for i, x in enumerate(rows):
+        x["q"] = qs[i * len(LAGS):(i + 1) * len(LAGS)]; k = x["lags"].index(x["best_lag"])
+        x["r_best"], x["p_best"], x["q_best"], x["n_best"] = x["r"][k], x["p"][k], x["q"][k], x["n"][k]
+        x["status"] = "candidate" if x["q_best"] < CORR_Q and abs(x["r_best"]) >= CORR_R else "weak" if x["p_best"] < .05 else "none"
+        x["agrees"] = None if x["expect"] is None else bool((x["r_best"] > 0) == (x["expect"] == "+"))
+    rows.sort(key=lambda x: ({"candidate": 0, "weak": 1, "none": 2}[x["status"]], -abs(x["r_best"])))
+    REPORT["correlations"] = dict(
+        city="hcm", years=[CORR_Y0, CORR_Y1], tests=len(qs), thresholds=dict(q=CORR_Q, abs_r=CORR_R), skipped=skipped,
+        names={k: v for k, v in names.items()}, pairs=rows,
+        method=dict(vi="Chuỗi tháng đã trừ chu kỳ mùa và xu hướng tuyến tính riêng của từng chuỗi; r Pearson ở độ trễ 0–3 tháng (dương = chuỗi thứ hai theo sau); p theo cỡ mẫu hiệu dụng (Bretherton) vì chuỗi tự tương quan; q = hiệu chỉnh Benjamini-Hochberg trên mọi cặp × độ trễ đã thử.",
+                    en="Monthly series with the seasonal cycle and each series' own linear trend removed; Pearson r at lags 0-3 months (positive = the second series follows); p uses the effective sample size (Bretherton) because the series are autocorrelated; q = Benjamini-Hochberg over every pair x lag tested."),
+        caveat=dict(vi="Tương quan không chứng minh nhân quả. Một cặp chỉ là ứng viên để xem xét khi q < 0,05 và |r| ≥ 0,3; chiều tương quan cũng nên khớp cơ chế vật lý.",
+                    en="Correlation does not prove causation. A pair is only a candidate when q < 0.05 and |r| >= 0.3; the sign should also match the physical mechanism."))
+    out = dict(REPORT["correlations"], generated=datetime.date.today().isoformat())
+    (PROC / "correlations.json").write_text(json.dumps(out, ensure_ascii=False, indent=1, default=float), encoding="utf-8")
+
 def pct(x): return f"{100 * x:.0f}%"
 def row(name, s): return f"| {name} | {f(s['slope'], 3)} | {f(s['p_t'], 2)} | {f(s['p_mk'], 2)} | {'có' if s['sig'] else 'không'} | {s['n']} |"
+def corr_lines():
+    C = REPORT.get("correlations")
+    if not C or not C["pairs"]: return ["Chưa tính được (thiếu dữ liệu hoặc không kết nối được NASA POWER): " + "; ".join(f"{s['var']}: {s['reason']}" for s in (C or {}).get("skipped", []))]
+    nm = lambda k: (C["names"].get(k) or {}).get("vi") or {"T2M": "Nhiệt độ 2 m", "PRECTOTCORR": "Lượng mưa", "WS2M": "Gió 2 m", "RH2M": "Độ ẩm tương đối"}.get(k, k)
+    L = [f"Giai đoạn {C['years'][0]}–{C['years'][1]}, TP.HCM. {C['method']['vi']}", "",
+         f"Ngưỡng ứng viên: q < {C['thresholds']['q']} và |r| ≥ {C['thresholds']['abs_r']}. Tổng số phép thử (cặp × độ trễ): {C['tests']}.", "",
+         "| Cặp | r tốt nhất | Độ trễ (tháng) | q | n | Kết luận | Khớp cơ chế |", "|---|---|---|---|---|---|---|"]
+    for x in C["pairs"]:
+        L.append(f"| {nm(x['a'])} ↔ {nm(x['b'])} | {f(x['r_best'], 2)} | {x['best_lag']} | {f(x['q_best'], 2)} | {x['n_best']} | {({'candidate': 'ứng viên', 'weak': 'yếu', 'none': 'không thấy'})[x['status']]} | {'–' if x['agrees'] is None else 'có' if x['agrees'] else 'không'} |")
+    L += ["", C["caveat"]["vi"]]
+    if C["skipped"]: L += ["", "Bỏ qua: " + "; ".join(f"{s['var']} ({s['reason']})" for s in C["skipped"])]
+    return L
 def write_report():
     A, N, F = REPORT["aod"], REPORT["no2"], REPORT["fire"]
     L = ["# Chất lượng dữ liệu và tiền xử lý — ca TP.HCM", "",
@@ -186,7 +256,8 @@ def write_report():
           "| NO₂ ≤ 0 | Loại | Cột khí không thể âm |", f"| Gộp tháng | ≥ {MIN_DAYS} ngày hợp lệ, bỏ tháng chưa trọn | Trung bình từ vài ngày kém đại diện |",
           "| Ngoại lai | Đánh dấu (robust z theo cùng tháng), không xóa | Không phân biệt được sự kiện thật với lỗi nếu thiếu số đo mặt đất |",
           "| Chu kỳ mùa | Trừ trung bình từng tháng lịch trước khi kiểm định | Để chu kỳ mùa không che xu hướng |", "",
-          "## 6. Dữ liệu nên bổ sung để nâng cấp", "",
+          "## 6. Sàng lọc tương quan giữa các biến", "", *corr_lines(), "",
+          "## 7. Dữ liệu nên bổ sung để nâng cấp", "",
           "1. **Điểm cháy FIRMS 2006–2025** (cần MAP_KEY) để nối khói/cháy với AOD và NO₂ theo độ trễ 0–3 tháng.",
           "2. **PM2.5 mặt đất** (OpenAQ hoặc trạm đại sứ quán Mỹ tại TP.HCM, từ khoảng 2016) để kiểm chứng AOD và NO₂ có phản ánh không khí người dân hít thở không.",
           "3. **Khí tượng cùng giai đoạn 2004–2026** (mưa, gió, nhiệt độ, độ ẩm từ NASA POWER): mưa rửa trôi bụi, gió phân tán khí. Đây là biến gây nhiễu cần đưa vào khi diễn giải AOD và NO₂.",
@@ -196,7 +267,7 @@ def write_report():
     (DOCS / "data-quality.md").write_text("\n".join(L), encoding="utf-8")
 
 if __name__ == "__main__":
-    do_aod(); do_no2(); do_fire(); write_report()
+    do_aod(); do_no2(); do_fire(); do_correlations(); write_report()
     (ROOT / "data" / "quality_report.json").write_text(json.dumps(REPORT, ensure_ascii=False, indent=1, default=float), encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     print("AOD  rows", REPORT["aod"]["rows"], "fill", REPORT["aod"]["fill"], "-> hcm_aod.csv")
